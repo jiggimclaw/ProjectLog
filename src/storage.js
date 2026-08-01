@@ -1,24 +1,42 @@
-import { buildBackup, validateBackup } from './domain.js';
+import { buildBackup, validateBackup } from './domain.js?v=2.1.0';
+import { compactEvents, createEntityCreatedEvent, deriveEntityEvents } from './events.js?v=2.1.0';
 
 const ENTITY_STORES = new Set(['projects', 'bugs', 'ideas']);
-const META_DEFAULTS = { bugSequence: 0, ideaSequence: 0 };
+const DATA_STORES = new Set(['projects', 'bugs', 'ideas', 'events', 'monthlySummaries']);
+const ALL_STORES = ['projects', 'bugs', 'ideas', 'events', 'monthlySummaries', 'meta'];
+const META_DEFAULTS = {
+  bugSequence: 0,
+  ideaSequence: 0,
+  schemaVersion: 2,
+  appSettings: { startView: 'dashboard', includeArchived: false },
+};
 
 function assertStore(store) {
-  if (!ENTITY_STORES.has(store)) throw new Error(`Unknown store: ${store}`);
+  if (!DATA_STORES.has(store)) throw new Error(`Unknown store: ${store}`);
 }
 
 function clone(value) {
   return value === undefined ? undefined : structuredClone(value);
 }
 
+function entityStore(kind) {
+  if (kind === 'project') return 'projects';
+  if (kind === 'bug') return 'bugs';
+  if (kind === 'idea') return 'ideas';
+  throw new Error(`Unknown entity kind: ${kind}`);
+}
+
+function normalizeSettings(value = {}) {
+  const startView = value.startView ?? 'dashboard';
+  if (!['dashboard', 'projects'].includes(startView)) throw new Error('Invalid start view');
+  const includeArchived = value.includeArchived ?? false;
+  if (typeof includeArchived !== 'boolean') throw new Error('includeArchived must be a boolean');
+  return { startView, includeArchived };
+}
+
 export class MemoryProjectLogDriver {
   constructor() {
-    this.stores = {
-      projects: new Map(),
-      bugs: new Map(),
-      ideas: new Map(),
-      meta: new Map(),
-    };
+    this.stores = Object.fromEntries(ALL_STORES.map((store) => [store, new Map()]));
   }
 
   async open() {}
@@ -47,22 +65,35 @@ export class MemoryProjectLogDriver {
     return next;
   }
 
+  async saveEntity(store, entity, events) {
+    this.stores[store].set(entity.id, clone(entity));
+    for (const event of events) this.stores.events.set(event.id, clone(event));
+  }
+
+  async replaceHistory(events, summaries) {
+    this.stores.events = new Map(events.map((item) => [item.id, clone(item)]));
+    this.stores.monthlySummaries = new Map(summaries.map((item) => [item.id, clone(item)]));
+  }
+
   async replaceAll(data) {
-    const replacement = {
+    this.stores = {
       projects: new Map(data.projects.map((item) => [item.id, clone(item)])),
       bugs: new Map(data.bugs.map((item) => [item.id, clone(item)])),
       ideas: new Map(data.ideas.map((item) => [item.id, clone(item)])),
+      events: new Map((data.events ?? []).map((item) => [item.id, clone(item)])),
+      monthlySummaries: new Map((data.monthlySummaries ?? []).map((item) => [item.id, clone(item)])),
       meta: new Map([
         ['bugSequence', { key: 'bugSequence', value: data.meta.bugSequence }],
         ['ideaSequence', { key: 'ideaSequence', value: data.meta.ideaSequence }],
+        ['schemaVersion', { key: 'schemaVersion', value: 2 }],
+        ['appSettings', { key: 'appSettings', value: clone(data.settings ?? META_DEFAULTS.appSettings) }],
       ]),
     };
-    this.stores = replacement;
   }
 
   async removeProjectCascade(projectId) {
     this.stores.projects.delete(projectId);
-    for (const store of ['bugs', 'ideas']) {
+    for (const store of ['bugs', 'ideas', 'events', 'monthlySummaries']) {
       for (const [id, entity] of this.stores[store]) {
         if (entity.projectId === projectId) this.stores[store].delete(id);
       }
@@ -89,6 +120,14 @@ function transactionDone(transaction) {
   });
 }
 
+function ensureStore(database, name, options, indexes = []) {
+  const store = database.objectStoreNames.contains(name)
+    ? null
+    : database.createObjectStore(name, options);
+  if (!store) return;
+  for (const [indexName, keyPath] of indexes) store.createIndex(indexName, keyPath, { unique: false });
+}
+
 export class IndexedDBProjectLogDriver {
   constructor({ indexedDB = globalThis.indexedDB, databaseName = 'projectlog-db' } = {}) {
     if (!indexedDB) throw new Error('IndexedDB is not available in this browser');
@@ -99,19 +138,15 @@ export class IndexedDBProjectLogDriver {
 
   async open() {
     if (this.database) return;
-    const request = this.indexedDB.open(this.databaseName, 1);
+    const request = this.indexedDB.open(this.databaseName, 2);
     request.onupgradeneeded = () => {
       const database = request.result;
-      for (const store of ['projects', 'bugs', 'ideas']) {
-        if (!database.objectStoreNames.contains(store)) {
-          const objectStore = database.createObjectStore(store, { keyPath: 'id' });
-          if (store !== 'projects') objectStore.createIndex('projectId', 'projectId', { unique: false });
-          objectStore.createIndex('updatedAt', 'updatedAt', { unique: false });
-        }
-      }
-      if (!database.objectStoreNames.contains('meta')) {
-        database.createObjectStore('meta', { keyPath: 'key' });
-      }
+      ensureStore(database, 'projects', { keyPath: 'id' }, [['updatedAt', 'updatedAt']]);
+      ensureStore(database, 'bugs', { keyPath: 'id' }, [['projectId', 'projectId'], ['updatedAt', 'updatedAt']]);
+      ensureStore(database, 'ideas', { keyPath: 'id' }, [['projectId', 'projectId'], ['updatedAt', 'updatedAt']]);
+      ensureStore(database, 'events', { keyPath: 'id' }, [['projectId', 'projectId'], ['entityId', 'entityId'], ['timestamp', 'timestamp']]);
+      ensureStore(database, 'monthlySummaries', { keyPath: 'id' }, [['projectId', 'projectId'], ['month', 'month']]);
+      ensureStore(database, 'meta', { keyPath: 'key' });
     };
     this.database = await requestAsPromise(request);
   }
@@ -151,23 +186,45 @@ export class IndexedDBProjectLogDriver {
     return next;
   }
 
+  async saveEntity(storeName, entity, events) {
+    const transaction = this.database.transaction([storeName, 'events'], 'readwrite');
+    transaction.objectStore(storeName).put(entity);
+    const eventStore = transaction.objectStore('events');
+    for (const event of events) eventStore.put(event);
+    await transactionDone(transaction);
+  }
+
+  async replaceHistory(events, summaries) {
+    const transaction = this.database.transaction(['events', 'monthlySummaries'], 'readwrite');
+    const eventStore = transaction.objectStore('events');
+    const summaryStore = transaction.objectStore('monthlySummaries');
+    eventStore.clear();
+    summaryStore.clear();
+    for (const event of events) eventStore.put(event);
+    for (const summary of summaries) summaryStore.put(summary);
+    await transactionDone(transaction);
+  }
+
   async replaceAll(data) {
-    const transaction = this.database.transaction(['projects', 'bugs', 'ideas', 'meta'], 'readwrite');
-    for (const storeName of ['projects', 'bugs', 'ideas', 'meta']) {
-      transaction.objectStore(storeName).clear();
-    }
+    const transaction = this.database.transaction(ALL_STORES, 'readwrite');
+    for (const storeName of ALL_STORES) transaction.objectStore(storeName).clear();
     for (const project of data.projects) transaction.objectStore('projects').put(project);
     for (const bug of data.bugs) transaction.objectStore('bugs').put(bug);
     for (const idea of data.ideas) transaction.objectStore('ideas').put(idea);
+    for (const event of data.events ?? []) transaction.objectStore('events').put(event);
+    for (const summary of data.monthlySummaries ?? []) transaction.objectStore('monthlySummaries').put(summary);
     transaction.objectStore('meta').put({ key: 'bugSequence', value: data.meta.bugSequence });
     transaction.objectStore('meta').put({ key: 'ideaSequence', value: data.meta.ideaSequence });
+    transaction.objectStore('meta').put({ key: 'schemaVersion', value: 2 });
+    transaction.objectStore('meta').put({ key: 'appSettings', value: data.settings ?? META_DEFAULTS.appSettings });
     await transactionDone(transaction);
   }
 
   async removeProjectCascade(projectId) {
-    const transaction = this.database.transaction(['projects', 'bugs', 'ideas'], 'readwrite');
+    const stores = ['projects', 'bugs', 'ideas', 'events', 'monthlySummaries'];
+    const transaction = this.database.transaction(stores, 'readwrite');
     transaction.objectStore('projects').delete(projectId);
-    for (const storeName of ['bugs', 'ideas']) {
+    for (const storeName of ['bugs', 'ideas', 'events', 'monthlySummaries']) {
       const index = transaction.objectStore(storeName).index('projectId');
       const keys = await requestAsPromise(index.getAllKeys(projectId));
       for (const key of keys) transaction.objectStore(storeName).delete(key);
@@ -176,10 +233,8 @@ export class IndexedDBProjectLogDriver {
   }
 
   async clearAll() {
-    const transaction = this.database.transaction(['projects', 'bugs', 'ideas', 'meta'], 'readwrite');
-    for (const storeName of ['projects', 'bugs', 'ideas', 'meta']) {
-      transaction.objectStore(storeName).clear();
-    }
+    const transaction = this.database.transaction(ALL_STORES, 'readwrite');
+    for (const storeName of ALL_STORES) transaction.objectStore(storeName).clear();
     await transactionDone(transaction);
   }
 }
@@ -188,14 +243,38 @@ export class ProjectLogRepository {
   constructor({ driver, now = () => new Date().toISOString() } = {}) {
     this.driver = driver ?? new IndexedDBProjectLogDriver();
     this.now = now;
+    this.lastSafetyBackup = null;
   }
 
   async init() {
     await this.driver.open();
-    for (const [key, value] of Object.entries(META_DEFAULTS)) {
-      if (!(await this.driver.get('meta', key))) {
-        await this.driver.put('meta', { key, value });
+    const schemaVersion = await this.driver.get('meta', 'schemaVersion');
+    const projects = await this.driver.getAll('projects');
+    const bugs = await this.driver.getAll('bugs');
+    const ideas = await this.driver.getAll('ideas');
+    const requiresMigration = projects.some((item) => item.status == null || item.priority == null || item.favorite == null)
+      || bugs.some((item) => item.severity == null || item.priority != null)
+      || ideas.some((item) => item.value == null || item.tags == null);
+
+    if (requiresMigration) {
+      const bugMeta = await this.driver.get('meta', 'bugSequence');
+      const ideaMeta = await this.driver.get('meta', 'ideaSequence');
+      const migrated = validateBackup({
+        schema: 'projectlog.backup.v1',
+        exportedAt: this.now(),
+        data: {
+          projects,
+          bugs,
+          ideas,
+          meta: { bugSequence: bugMeta?.value ?? 0, ideaSequence: ideaMeta?.value ?? 0 },
+        },
+      });
+      await this.driver.replaceAll(migrated.data);
+    } else {
+      for (const [key, value] of Object.entries(META_DEFAULTS)) {
+        if (!(await this.driver.get('meta', key))) await this.driver.put('meta', { key, value: clone(value) });
       }
+      if (schemaVersion?.value !== 2) await this.driver.put('meta', { key: 'schemaVersion', value: 2 });
     }
     return this;
   }
@@ -222,6 +301,56 @@ export class ProjectLogRepository {
     await this.driver.delete(store, id);
   }
 
+  async saveEntity(kind, entity) {
+    const store = entityStore(kind);
+    const before = await this.driver.get(store, entity.id);
+    const events = before
+      ? deriveEntityEvents(kind, before, entity)
+      : [createEntityCreatedEvent(kind, entity)];
+    await this.driver.saveEntity(store, entity, events);
+    return entity;
+  }
+
+  async deleteEntity(kind, id) {
+    await this.driver.delete(entityStore(kind), id);
+  }
+
+  async listEvents({ projectId, entityId, entityType } = {}) {
+    return (await this.driver.getAll('events'))
+      .filter((event) => !projectId || event.projectId === projectId)
+      .filter((event) => !entityId || event.entityId === entityId)
+      .filter((event) => !entityType || event.entityType === entityType)
+      .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  }
+
+  async listMonthlySummaries(projectId = null) {
+    return (await this.driver.getAll('monthlySummaries'))
+      .filter((summary) => !projectId || summary.projectId === projectId)
+      .sort((a, b) => a.month.localeCompare(b.month) || a.id.localeCompare(b.id));
+  }
+
+  async getSettings() {
+    const record = await this.driver.get('meta', 'appSettings');
+    return normalizeSettings(record?.value ?? META_DEFAULTS.appSettings);
+  }
+
+  async saveSettings(changes) {
+    const current = await this.getSettings();
+    const value = normalizeSettings({ ...current, ...changes });
+    await this.driver.put('meta', { key: 'appSettings', value });
+    return value;
+  }
+
+  async compactHistory(now = new Date()) {
+    const result = compactEvents(
+      await this.driver.getAll('events'),
+      await this.driver.getAll('monthlySummaries'),
+      now,
+    );
+    await this.driver.replaceHistory(result.events, result.monthlySummaries);
+    return result;
+  }
+
   async removeProjectCascade(projectId) {
     await this.driver.removeProjectCascade(projectId);
   }
@@ -233,10 +362,13 @@ export class ProjectLogRepository {
   }
 
   async exportBackup() {
-    const [projects, bugs, ideas, bugMeta, ideaMeta] = await Promise.all([
+    const [projects, bugs, ideas, events, monthlySummaries, settings, bugMeta, ideaMeta] = await Promise.all([
       this.list('projects'),
       this.list('bugs'),
       this.list('ideas'),
+      this.driver.getAll('events'),
+      this.driver.getAll('monthlySummaries'),
+      this.getSettings(),
       this.driver.get('meta', 'bugSequence'),
       this.driver.get('meta', 'ideaSequence'),
     ]);
@@ -244,6 +376,9 @@ export class ProjectLogRepository {
       projects,
       bugs,
       ideas,
+      events,
+      monthlySummaries,
+      settings,
       meta: {
         bugSequence: bugMeta?.value ?? 0,
         ideaSequence: ideaMeta?.value ?? 0,
@@ -253,6 +388,7 @@ export class ProjectLogRepository {
 
   async importBackup(value) {
     const validated = validateBackup(value);
+    this.lastSafetyBackup = await this.exportBackup();
     await this.driver.replaceAll(validated.data);
     return validated;
   }

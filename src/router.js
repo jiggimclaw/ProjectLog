@@ -1,4 +1,4 @@
-const ALLOWED_VIEWS = new Set(['overview', 'bugs', 'ideas']);
+const ALLOWED_VIEWS = new Set(['overview', 'bugs', 'ideas', 'history']);
 const SAFE_PROJECT_ID = /^[A-Za-z0-9._:-]{1,120}$/;
 
 function invalid(message) {
