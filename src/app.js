@@ -10,6 +10,7 @@ import { icon } from './icons.js';
 import { parseLaunchCommand } from './router.js';
 import { ProjectLogRepository } from './storage.js';
 
+const APP_VERSION = '1.2.2';
 const repository = new ProjectLogRepository();
 
 const state = {
@@ -443,7 +444,7 @@ function renderSettings() {
       <li><button class="settings-action" type="button" data-action="load-demo"><span class="list-icon idea">${icon('bulb')}</span><span class="settings-copy"><span class="settings-title">Demodaten hinzufügen</span><span class="settings-subtitle">Legt ein Beispielprojekt mit Bug und Idee an</span></span><span class="settings-accessory">${icon('chevron')}</span></button></li>
       <li><button class="settings-action" type="button" data-action="clear-all"><span class="list-icon bug">${icon('trash')}</span><span class="settings-copy"><span class="settings-title is-danger">Alle lokalen Daten löschen</span><span class="settings-subtitle">Entfernt Projekte, Bugs und Ideen auf diesem Gerät</span></span></button></li>
     </ul>
-    <p class="settings-note">ProjectLog speichert ausschließlich lokal in diesem Browserprofil. Ein aktuelles Backup bleibt daher die Rückfallebene.</p>`;
+    <p class="settings-note">ProjectLog speichert ausschließlich lokal in diesem Browserprofil. Ein aktuelles Backup bleibt daher die Rückfallebene.</p><p class="settings-note app-version">ProjectLog ${APP_VERSION}</p>`;
 }
 function render() {
   renderHeader();
@@ -759,7 +760,7 @@ async function applyLaunchCommand() {
 
 async function registerServiceWorker() {
   if ('serviceWorker' in navigator) {
-    try { await navigator.serviceWorker.register('./service-worker.js'); }
+    try { await navigator.serviceWorker.register('./service-worker.js?v=1.2.2', { updateViaCache: 'none' }); }
     catch (error) { console.warn('Service Worker konnte nicht registriert werden:', error); }
   }
 }
