@@ -5,6 +5,7 @@ import {
   deriveActivity,
   touchEntity,
 } from './domain.js';
+import { buildBackupFilename } from './backup.js';
 import { icon } from './icons.js';
 import { parseLaunchCommand } from './router.js';
 import { ProjectLogRepository } from './storage.js';
@@ -35,6 +36,7 @@ const editorError = document.querySelector('#editor-error');
 const editorDeleteSlot = document.querySelector('#editor-delete-slot');
 const importInput = document.querySelector('#import-file');
 const toast = document.querySelector('#toast');
+const statusBarMeta = document.querySelector('#status-bar-style');
 
 const navIconNames = { projects: 'folder', activity: 'clock', settings: 'gear' };
 for (const button of nav.querySelectorAll('[data-nav]')) {
@@ -106,6 +108,13 @@ function formatRelative(value) {
     return new Intl.DateTimeFormat('de-DE', { weekday: 'short', hour: '2-digit', minute: '2-digit' }).format(date);
   }
   return shortDateFormatter.format(date);
+}
+
+function syncStatusBarStyle() {
+  if (!statusBarMeta) return;
+  statusBarMeta.content = window.matchMedia('(prefers-color-scheme: dark)').matches
+    ? 'black-translucent'
+    : 'default';
 }
 
 function showToast(message, timeout = 2800) {
@@ -362,13 +371,16 @@ function renderActivity() {
     return `
       <section>
         <h2 class="activity-date">${heading}</h2>
-        <div class="grouped-list">
+        <ol class="grouped-list activity-list">
           ${group.map((item) => `
-            <div class="activity-line list-row">
+            <li class="activity-item">
               <time class="activity-time" datetime="${escapeHtml(item.timestamp)}">${timeFormatter.format(new Date(item.timestamp))}</time>
-              <p class="activity-copy"><strong>${escapeHtml(item.title)}</strong> wurde ${item.action === 'created' ? 'erstellt' : 'geändert'}<br><span class="list-subtitle">${escapeHtml(item.projectName)} · ${escapeHtml(item.entityId)}</span></p>
-            </div>`).join('')}
-        </div>
+              <div class="activity-content">
+                <p class="activity-sentence"><strong>${escapeHtml(item.title)}</strong> <span class="activity-action">wurde ${item.action === 'created' ? 'erstellt' : 'geändert'}</span></p>
+                <p class="activity-meta">${escapeHtml(item.projectName)} · ${escapeHtml(item.entityId)}</p>
+              </div>
+            </li>`).join('')}
+        </ol>
       </section>`;
   }).join('');
 }
@@ -384,43 +396,55 @@ function renderSettings() {
   const base = appBaseUrl();
   const sampleProject = state.projects[0]?.id ?? 'PRJ-DEINE-ID';
   const commands = [
-    ['Neues Projekt', `${base}?action=new-project`],
-    ['Neuer Bug', `${base}?action=new-bug&project=${encodeURIComponent(sampleProject)}`],
-    ['Neue Idee', `${base}?action=new-idea&project=${encodeURIComponent(sampleProject)}`],
+    ['Neues Projekt', 'Öffnet ein leeres Projektformular', `${base}?action=new-project`],
+    ['Neuer Bug', `Öffnet das Bugformular für ${sampleProject}`, `${base}?action=new-bug&project=${encodeURIComponent(sampleProject)}`],
+    ['Neue Idee', `Öffnet das Ideenformular für ${sampleProject}`, `${base}?action=new-idea&project=${encodeURIComponent(sampleProject)}`],
   ];
   return `
     <p class="section-label">Datensicherung</p>
     <ul class="grouped-list">
-      <li class="list-row settings-row"><button type="button" data-action="export-backup"><span class="list-icon">${icon('export')}</span><span class="row-label">JSON-Backup exportieren</span></button></li>
-      <li class="list-row settings-row"><button type="button" data-action="import-backup"><span class="list-icon">${icon('import')}</span><span class="row-label">JSON-Backup importieren</span></button></li>
+      <li>
+        <button class="settings-action" type="button" data-action="share-backup">
+          <span class="list-icon">${icon('export')}</span>
+          <span class="settings-copy"><span class="settings-title">Backup in Dateien sichern</span><span class="settings-subtitle">JSON über Teilen in iCloud Drive oder „Dateien“ ablegen</span></span>
+          <span class="settings-accessory">Teilen</span>
+        </button>
+      </li>
+      <li>
+        <button class="settings-action" type="button" data-action="import-backup">
+          <span class="list-icon">${icon('import')}</span>
+          <span class="settings-copy"><span class="settings-title">JSON-Backup importieren</span><span class="settings-subtitle">Ersetzt den lokalen Bestand erst nach vollständiger Prüfung</span></span>
+          <span class="settings-accessory">${icon('chevron')}</span>
+        </button>
+      </li>
     </ul>
-    <p class="settings-note">Der Import wird vollständig geprüft, bevor bestehende Daten ersetzt werden.</p>
+    <p class="settings-note">Backups erhalten einen Zeitstempel bis auf die Sekunde. Das eigentliche Speichern in einen Ordner muss iOS aus Sicherheitsgründen über das Teilen-Menü bestätigen.</p>
 
     <p class="section-label">Kurzbefehle und URLs</p>
     <ul class="grouped-list">
-      ${commands.map(([label, url]) => `
-        <li class="list-row settings-row">
-          <button type="button" data-action="copy-url" data-url="${escapeHtml(url)}">
+      ${commands.map(([label, description, url]) => `
+        <li>
+          <button class="settings-action" type="button" data-action="copy-url" data-url="${escapeHtml(url)}">
             <span class="list-icon">${icon('copy')}</span>
-            <span class="row-label">${label}<span class="list-subtitle">URL kopieren</span></span>
+            <span class="settings-copy"><span class="settings-title">${label}</span><span class="settings-subtitle">${escapeHtml(description)}</span></span>
+            <span class="settings-accessory">Kopieren</span>
           </button>
         </li>`).join('')}
     </ul>
-    <p class="settings-note">iOS-PWAs können kein eigenes Schema wie <code>projectlog://</code> registrieren. Diese HTTPS-Links lassen sich jedoch in Kurzbefehlen öffnen und füllen sichere Aktionen vor.</p>
+    <p class="settings-note">iOS-PWAs können kein eigenes <code>projectlog://</code>-Schema registrieren. Die HTTPS-Links öffnen ausschließlich Ansichten oder vorausgefüllte Formulare.</p>
 
     <p class="section-label">Installation</p>
     <div class="grouped-list">
-      <div class="list-row"><span class="list-icon">${icon('info')}</span><div class="list-content"><p class="list-title">Auf dem iPhone installieren</p><p class="list-subtitle">In Safari öffnen → Teilen → Zum Home-Bildschirm. Danach funktioniert die App nach dem ersten Laden offline.</p></div></div>
+      <div class="list-row settings-static"><span class="list-icon">${icon('info')}</span><div class="list-content"><p class="list-title">Auf dem iPhone installieren</p><p class="list-subtitle">In Safari öffnen → Teilen → Zum Home-Bildschirm. Nach dem ersten Laden ist die App-Shell offline verfügbar.</p></div></div>
     </div>
 
     <p class="section-label">Testdaten</p>
     <ul class="grouped-list">
-      <li class="list-row settings-row"><button type="button" data-action="load-demo"><span class="list-icon idea">${icon('bulb')}</span><span class="row-label">Demodaten hinzufügen</span></button></li>
-      <li class="list-row settings-row"><button type="button" data-action="clear-all"><span class="list-icon bug">${icon('trash')}</span><span class="row-label" style="color:var(--danger)">Alle lokalen Daten löschen</span></button></li>
+      <li><button class="settings-action" type="button" data-action="load-demo"><span class="list-icon idea">${icon('bulb')}</span><span class="settings-copy"><span class="settings-title">Demodaten hinzufügen</span><span class="settings-subtitle">Legt ein Beispielprojekt mit Bug und Idee an</span></span><span class="settings-accessory">${icon('chevron')}</span></button></li>
+      <li><button class="settings-action" type="button" data-action="clear-all"><span class="list-icon bug">${icon('trash')}</span><span class="settings-copy"><span class="settings-title is-danger">Alle lokalen Daten löschen</span><span class="settings-subtitle">Entfernt Projekte, Bugs und Ideen auf diesem Gerät</span></span></button></li>
     </ul>
-    <p class="settings-note">ProjectLog speichert ausschließlich lokal in diesem Browserprofil. Regelmäßige JSON-Backups sind daher sinnvoll.</p>`;
+    <p class="settings-note">ProjectLog speichert ausschließlich lokal in diesem Browserprofil. Ein aktuelles Backup bleibt daher die Rückfallebene.</p>`;
 }
-
 function render() {
   renderHeader();
   setNavigationState();
@@ -492,6 +516,7 @@ function openEditor(type, entity = null, prefill = {}) {
   editorDeleteSlot.innerHTML = entity
     ? `<button class="danger-button" type="button" data-dialog-action="delete">${type === 'project' ? 'Projekt und Einträge löschen' : 'Eintrag löschen'}</button>`
     : '';
+  document.documentElement.classList.add('modal-open');
   editorDialog.showModal();
   window.setTimeout(() => editorFields.querySelector('input, textarea, select')?.focus(), 30);
 }
@@ -567,15 +592,15 @@ async function deleteEditorEntity() {
   showToast('Gelöscht.');
 }
 
-async function exportBackup() {
+async function shareBackup() {
   const backup = await repository.exportBackup();
   const blob = new Blob([`${JSON.stringify(backup, null, 2)}\n`], { type: 'application/json' });
-  const filename = `ProjectLog_Backup_${new Date().toISOString().slice(0, 10)}.json`;
+  const filename = buildBackupFilename(new Date());
   const file = new File([blob], filename, { type: 'application/json' });
   if (navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title: 'ProjectLog Backup' });
-      showToast('Backup bereitgestellt.');
+      showToast('Backup an das Teilen-Menü übergeben.');
       return;
     } catch (error) {
       if (error?.name === 'AbortError') return;
@@ -587,7 +612,7 @@ async function exportBackup() {
   anchor.download = filename;
   anchor.click();
   URL.revokeObjectURL(url);
-  showToast('Backup exportiert.');
+  showToast('Backup heruntergeladen.');
 }
 
 async function importBackup(file) {
@@ -648,7 +673,7 @@ async function handleAction(action, target) {
     case 'edit-idea': openEditor('idea', state.ideas.find((item) => item.id === target.dataset.id)); break;
     case 'bug-filter': state.bugFilter = target.dataset.value; render(); break;
     case 'idea-filter': state.ideaFilter = target.dataset.value; render(); break;
-    case 'export-backup': await exportBackup(); break;
+    case 'share-backup': await shareBackup(); break;
     case 'import-backup': importInput.click(); break;
     case 'copy-url':
       try { await navigator.clipboard.writeText(target.dataset.url); showToast('URL kopiert.'); }
@@ -698,6 +723,7 @@ editorDialog.addEventListener('click', (event) => {
   if (action === 'delete') deleteEditorEntity().catch((error) => showToast(error.message, 4500));
 });
 editorDialog.addEventListener('close', () => {
+  document.documentElement.classList.remove('modal-open');
   editorError.hidden = true;
   if (!editorDialog.open) state.editor = null;
 });
@@ -740,6 +766,7 @@ async function registerServiceWorker() {
 
 async function bootstrap() {
   try {
+    syncStatusBarStyle();
     await repository.init();
     await refresh();
     await applyLaunchCommand();
@@ -749,5 +776,8 @@ async function bootstrap() {
     main.innerHTML = `<section class="fatal-error"><h2>ProjectLog konnte nicht starten</h2><p>${escapeHtml(error.message)}</p><p>Prüfe, ob die App über HTTPS oder localhost geöffnet wurde und lokaler Speicher erlaubt ist.</p></section>`;
   }
 }
+
+const colorSchemeQuery = window.matchMedia('(prefers-color-scheme: dark)');
+colorSchemeQuery.addEventListener?.('change', syncStatusBarStyle);
 
 bootstrap();
