@@ -229,7 +229,7 @@ function renderProjects() {
       <input id="project-search" type="search" placeholder="Projekte durchsuchen" value="${escapeHtml(state.search)}" autocomplete="off">
     </div>
     ${projects.length
-      ? `<ul class="grouped-list" aria-label="Projektliste">${rows}</ul>`
+      ? `<div class="section-meta-row"><p class="section-heading">Alle Projekte</p><p class="section-count">${projects.length}</p></div><ul class="grouped-list project-list" aria-label="Projektliste">${rows}</ul>`
       : renderEmpty({
           iconName: 'folder',
           title: query ? 'Nichts gefunden' : 'Noch keine Projekte',
