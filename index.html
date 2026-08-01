@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta id="status-bar-style" name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="ProjectLog">
   <meta name="description" content="Lokale Projekt-, Bug- und Ideenverwaltung.">
   <link rel="manifest" href="./manifest.webmanifest">
@@ -59,9 +59,11 @@
         <h2 id="editor-title">Eintrag</h2>
         <button type="submit" class="text-button strong">Sichern</button>
       </header>
-      <div id="editor-fields" class="sheet-content"></div>
-      <div id="editor-error" class="form-error" role="alert" hidden></div>
-      <div id="editor-delete-slot" class="sheet-danger"></div>
+      <div class="sheet-body">
+        <div id="editor-fields" class="sheet-content"></div>
+        <div id="editor-error" class="form-error" role="alert" hidden></div>
+        <div id="editor-delete-slot" class="sheet-danger"></div>
+      </div>
     </form>
   </dialog>
 

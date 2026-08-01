@@ -1,10 +1,11 @@
-const CACHE_NAME = 'projectlog-shell-v1';
+const CACHE_NAME = 'projectlog-shell-v1-1';
 const APP_SHELL = [
   './',
   './index.html',
   './styles.css',
   './manifest.webmanifest',
   './src/app.js',
+  './src/backup.js',
   './src/domain.js',
   './src/icons.js',
   './src/router.js',
