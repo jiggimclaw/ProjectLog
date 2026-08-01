@@ -1,15 +1,22 @@
-const CACHE_NAME = 'projectlog-shell-v1-2-2';
+const CACHE_NAME = 'projectlog-shell-v2-1-0';
+const VERSION = '2.1.0';
+const versioned = (path) => `${path}?v=${VERSION}`;
 const APP_SHELL = [
   './',
   './index.html',
-  './styles.css?v=1.2.2',
+  versioned('./styles.css'),
   './manifest.webmanifest',
-  './src/app.js?v=1.2.2',
-  './src/backup.js',
-  './src/domain.js',
-  './src/icons.js',
-  './src/router.js',
-  './src/storage.js',
+  versioned('./src/app.js'),
+  versioned('./src/analytics.js'),
+  versioned('./src/backup.js'),
+  versioned('./src/chart.js'),
+  versioned('./src/domain.js'),
+  versioned('./src/events.js'),
+  versioned('./src/icons.js'),
+  versioned('./src/presentation.js'),
+  versioned('./src/router.js'),
+  versioned('./src/storage.js'),
+  versioned('./src/view-helpers.js'),
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/apple-touch-icon.png',
@@ -39,8 +46,7 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put('./index.html', copy));
+          if (response.ok) caches.open(CACHE_NAME).then((cache) => cache.put('./index.html', response.clone()));
           return response;
         })
         .catch(() => caches.match('./index.html')),
@@ -49,15 +55,13 @@ self.addEventListener('fetch', (event) => {
   }
 
   event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-      return fetch(request).then((response) => {
+    fetch(request)
+      .then((response) => {
         if (response.ok && new URL(request.url).origin === self.location.origin) {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, response.clone()));
         }
         return response;
-      });
-    }),
+      })
+      .catch(() => caches.match(request)),
   );
 });

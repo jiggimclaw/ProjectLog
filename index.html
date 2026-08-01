@@ -8,46 +8,30 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta id="status-bar-style" name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="ProjectLog">
-  <meta name="description" content="Lokale Projekt-, Bug- und Ideenverwaltung.">
+  <meta name="description" content="Lokale Projektzentrale für Projekte, Bugs, Ideen und nachvollziehbare Entwicklungen.">
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
-  <link rel="stylesheet" href="./styles.css?v=1.2.2">
+  <link rel="stylesheet" href="./styles.css?v=2.1.0">
   <title>ProjectLog</title>
 </head>
 <body>
   <div id="app-shell" class="app-shell">
     <header id="app-header" class="app-header">
       <div class="header-row">
-        <div>
-          <p class="header-kicker">ProjectLog</p>
-          <h1>Projekte</h1>
-        </div>
-        <button class="toolbar-button primary" type="button" data-action="new-project" aria-label="Neues Projekt">
-          <span aria-hidden="true">＋</span>
-        </button>
+        <div class="header-title-group"><p class="header-kicker">ProjectLog</p><h1>Dashboard</h1></div>
+        <button class="toolbar-button primary" type="button" data-action="new-project" aria-label="Neues Projekt"><span aria-hidden="true">＋</span></button>
       </div>
     </header>
 
     <main id="app-main" class="app-main" tabindex="-1">
-      <section class="loading-state" aria-label="App wird geladen">
-        <div class="spinner" aria-hidden="true"></div>
-        <p>Daten werden geladen …</p>
-      </section>
+      <section class="loading-state" aria-label="App wird geladen"><div class="spinner" aria-hidden="true"></div><p>Daten werden geladen …</p></section>
     </main>
 
     <nav class="tab-bar" aria-label="Hauptnavigation">
-      <button type="button" class="tab-item is-active" data-nav="projects" aria-current="page">
-        <span class="tab-icon" aria-hidden="true">▣</span>
-        <span>Projekte</span>
-      </button>
-      <button type="button" class="tab-item" data-nav="activity">
-        <span class="tab-icon" aria-hidden="true">◷</span>
-        <span>Aktivität</span>
-      </button>
-      <button type="button" class="tab-item" data-nav="settings">
-        <span class="tab-icon" aria-hidden="true">⚙</span>
-        <span>Einstellungen</span>
-      </button>
+      <button type="button" class="tab-item is-active" data-nav="dashboard" aria-current="page"><span class="tab-icon" aria-hidden="true">▦</span><span>Dashboard</span></button>
+      <button type="button" class="tab-item" data-nav="projects"><span class="tab-icon" aria-hidden="true">▣</span><span>Projekte</span></button>
+      <button type="button" class="tab-item" data-nav="activity"><span class="tab-icon" aria-hidden="true">◷</span><span>Aktivität</span></button>
+      <button type="button" class="tab-item" data-nav="settings"><span class="tab-icon" aria-hidden="true">⚙</span><span>Einstellungen</span></button>
     </nav>
   </div>
 
@@ -69,7 +53,6 @@
 
   <input id="import-file" type="file" accept="application/json,.json" hidden>
   <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
-
-  <script type="module" src="./src/app.js?v=1.2.2"></script>
+  <script type="module" src="./src/app.js?v=2.1.0"></script>
 </body>
 </html>
