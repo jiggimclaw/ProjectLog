@@ -1,14 +1,12 @@
-import { buildDashboardModel, buildThirtyDaySeries, calculateProjectHealth } from './analytics.js?v=2.1.0';
-import { buildBackupFilename } from './backup.js?v=2.1.0';
-import { renderTrendChart } from './chart.js?v=2.1.0';
+import { buildBackupFilename } from './backup.js?v=3.1.0';
 import {
   createBug,
   createIdea,
   createProject,
   TAG_VALUES,
   updateEntity,
-} from './domain.js?v=2.1.0';
-import { icon } from './icons.js?v=2.1.0';
+} from './domain.js?v=3.1.0';
+import { icon } from './icons.js?v=3.1.0';
 import {
   bugSeverityMeta,
   bugStatusMeta,
@@ -18,36 +16,38 @@ import {
   projectPriorityMeta,
   projectStatusMeta,
   tagMeta,
-} from './presentation.js?v=2.1.0';
-import { parseLaunchCommand } from './router.js?v=2.1.0';
-import { ProjectLogRepository } from './storage.js?v=2.1.0';
+} from './presentation.js?v=3.1.0';
+import { parseLaunchCommand } from './router.js?v=3.1.0';
+import { ProjectLogRepository } from './storage.js?v=3.1.0';
+import { calculateProjectHealth } from './analytics.js?v=3.1.0';
 import {
   escapeHtml,
   formatDateTime,
   formatRelative,
   optionList,
   plural,
-} from './view-helpers.js?v=2.1.0';
+} from './view-helpers.js?v=3.1.0';
 
-export const APP_VERSION = '2.1.0';
+export const APP_VERSION = '3.1.0';
 
 const repository = new ProjectLogRepository();
+const EXTRA_STORAGE_KEY = 'projectlog.extras.v3';
 
 const state = {
-  tab: 'dashboard',
+  tab: 'projects',
   projectId: null,
   projectView: 'overview',
   search: '',
+  menuOpen: false,
   projectFilter: 'all',
-  bugFilter: 'active',
-  ideaFilter: 'all',
-  tagFilter: 'all',
   projects: [],
   bugs: [],
   ideas: [],
   events: [],
   monthlySummaries: [],
-  settings: { startView: 'dashboard', includeArchived: false },
+  settings: { startView: 'projects', includeArchived: false },
+  inbox: [],
+  references: [],
   editor: null,
 };
 
@@ -65,9 +65,10 @@ const toast = document.querySelector('#toast');
 const statusBarMeta = document.querySelector('#status-bar-style');
 
 const navMeta = {
-  dashboard: { label: 'Dashboard', icon: 'dashboard' },
   projects: { label: 'Projekte', icon: 'folder' },
-  activity: { label: 'Aktivität', icon: 'clock' },
+  inbox: { label: 'Eingang', icon: 'tray' },
+  library: { label: 'Bibliothek', icon: 'document' },
+  archive: { label: 'Archiv', icon: 'archive' },
   settings: { label: 'Einstellungen', icon: 'gear' },
 };
 
@@ -91,6 +92,27 @@ function showToast(message, timeout = 2800) {
   showToast.timer = window.setTimeout(() => toast.classList.remove('is-visible'), timeout);
 }
 
+function loadExtras() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(EXTRA_STORAGE_KEY) ?? '{}');
+    return {
+      inbox: Array.isArray(parsed.inbox) ? parsed.inbox : [],
+      references: Array.isArray(parsed.references) ? parsed.references : [],
+    };
+  } catch {
+    return { inbox: [], references: [] };
+  }
+}
+
+function saveExtras() {
+  localStorage.setItem(EXTRA_STORAGE_KEY, JSON.stringify({ inbox: state.inbox, references: state.references }));
+}
+
+function nextExtraId(prefix) {
+  const raw = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+  return `${prefix}-${raw.replaceAll('-', '').slice(0, 8).toUpperCase()}`;
+}
+
 function currentProject() {
   return state.projects.find((project) => project.id === state.projectId) ?? null;
 }
@@ -103,12 +125,430 @@ function projectIdeas(projectId) {
   return state.ideas.filter((idea) => idea.projectId === projectId);
 }
 
+function projectReferences(projectId) {
+  return state.references.filter((reference) => reference.projectIds.includes(projectId));
+}
+
 function lastProjectActivity(project) {
   return [
     project.updatedAt,
     ...projectBugs(project.id).map((item) => item.updatedAt),
     ...projectIdeas(project.id).map((item) => item.updatedAt),
+    ...projectReferences(project.id).map((item) => item.updatedAt),
   ].sort().at(-1) ?? project.updatedAt;
+}
+
+
+function safeHost(url) {
+  if (!url) return '';
+  try { return new URL(url).hostname.replace(/^www\./, ''); }
+  catch { return url; }
+}
+
+function currentTopLevelTab() {
+  return state.projectId ? 'projects' : ['projects', 'inbox'].includes(state.tab) ? state.tab : 'projects';
+}
+
+function setNavigationState() {
+  const activeTab = currentTopLevelTab();
+  for (const button of nav.querySelectorAll('[data-nav]')) {
+    const active = button.dataset.nav === activeTab;
+    button.classList.toggle('is-active', active);
+    const iconName = button.dataset.nav === 'projects'
+      ? (active ? 'folder-filled' : 'folder')
+      : (active ? 'tray-filled' : 'tray');
+    const slot = button.querySelector('.tab-icon');
+    if (slot) slot.innerHTML = icon(iconName);
+    if (active) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  }
+}
+
+function menuMarkup() {
+  if (!state.menuOpen) return '';
+  return `
+    <div class="header-menu" role="menu" aria-label="Mehr Optionen">
+      <button type="button" role="menuitem" data-action="open-library">${icon('document')}<span>Bibliothek</span></button>
+      <button type="button" role="menuitem" data-action="open-archive">${icon('archive')}<span>Archiv</span></button>
+      <button type="button" role="menuitem" data-action="share-backup">${icon('export')}<span>Backup exportieren</span></button>
+      <button type="button" role="menuitem" data-action="import-backup">${icon('import')}<span>Backup importieren</span></button>
+      <button type="button" role="menuitem" data-action="open-settings">${icon('gear')}<span>Einstellungen</span></button>
+    </div>`;
+}
+
+function headerButton(action, iconName, label, extraClass = '') {
+  return `<button class="toolbar-button ${extraClass}" type="button" data-action="${escapeHtml(action)}" aria-label="${escapeHtml(label)}">${icon(iconName)}</button>`;
+}
+
+function renderHeader() {
+  const project = currentProject();
+  if (project) {
+    const title = state.projectView === 'overview'
+      ? project.name
+      : state.projectView === 'bugs'
+        ? 'Bugs'
+        : state.projectView === 'ideas'
+          ? 'Ideen'
+          : state.projectView === 'references'
+            ? 'Referenzen'
+            : 'Verlauf';
+    const kicker = state.projectView === 'overview' ? project.id : project.name;
+    const backAction = state.projectView === 'overview' ? 'back-projects' : 'back-project-overview';
+    const backLabel = state.projectView === 'overview' ? 'Zurück zu Projekte' : 'Zurück zur Projektübersicht';
+    header.innerHTML = `
+      <div class="header-row project-header-row">
+        ${headerButton(backAction, 'back', backLabel)}
+        <div class="header-title-group">
+          <p class="header-kicker">${escapeHtml(kicker)}</p>
+          <h1>${escapeHtml(title)}</h1>
+        </div>
+        <div class="toolbar-actions">
+          ${state.projectView === 'overview' ? headerButton('toggle-favorite', project.favorite ? 'pin-filled' : 'pin', 'Favorit umschalten', project.favorite ? 'is-selected' : '') : '<span class="toolbar-spacer"></span>'}
+          ${state.projectView === 'overview' ? headerButton('edit-project', 'edit', 'Projekt bearbeiten') : headerButton('project-plus-menu', 'plus', 'Neuen Eintrag anlegen')}
+        </div>
+      </div>`;
+    return;
+  }
+
+  const meta = navMeta[state.tab] ?? navMeta.projects;
+  const backToProjects = ['library', 'archive', 'settings'].includes(state.tab);
+  const leading = backToProjects
+    ? headerButton('back-home', 'back', 'Zurück')
+    : '';
+  const primaryAction = state.tab === 'projects'
+    ? headerButton('new-project', 'plus', 'Neues Projekt', 'primary')
+    : state.tab === 'inbox'
+      ? headerButton('new-inbox', 'plus', 'Neuer Eingangseintrag', 'primary')
+      : '<span class="toolbar-spacer"></span>';
+  const topLevelTitle = state.tab === 'projects' ? 'ProjectLog' : meta.label;
+  header.innerHTML = `
+    <div class="header-row ${state.menuOpen ? 'is-menu-open' : ''}">
+      ${leading}
+      <div class="header-title-group">
+        <h1>${escapeHtml(topLevelTitle)}</h1>
+      </div>
+      <div class="toolbar-actions">${backToProjects ? '' : primaryAction}${headerButton('toggle-menu', 'ellipsis', 'Menü')}</div>
+      ${menuMarkup()}
+    </div>`;
+}
+
+function renderEmpty({ iconName, title, copy, action = '', actionLabel = '' }) {
+  return `
+    <section class="empty-state">
+      <div class="empty-symbol">${icon(iconName)}</div>
+      <h2>${escapeHtml(title)}</h2>
+      <p>${escapeHtml(copy)}</p>
+      ${action ? `<button class="primary-action" type="button" data-action="${escapeHtml(action)}">${escapeHtml(actionLabel)}</button>` : ''}
+    </section>`;
+}
+
+function badge(label, className = '', iconName = '') {
+  return `<span class="badge ${escapeHtml(className)}">${iconName ? icon(iconName, 'badge-icon') : ''}<span>${escapeHtml(label)}</span></span>`;
+}
+
+function renderTags(tags = []) {
+  if (!tags.length) return '';
+  const visible = tags.slice(0, 2);
+  const hidden = tags.length - visible.length;
+  return `<span class="tag-row">${visible.map((tag) => `<span class="tag-chip">${escapeHtml(tagMeta[tag]?.label ?? tag)}</span>`).join('')}${hidden > 0 ? `<span class="tag-chip is-muted">+${hidden}</span>` : ''}</span>`;
+}
+
+function healthBadge(project) {
+  const health = calculateProjectHealth(project, projectBugs(project.id), projectIdeas(project.id));
+  const meta = healthMeta[health.level];
+  return `${badge(meta.label, `health-badge ${meta.className}`, meta.icon)}<span class="health-reason">${escapeHtml(health.reason)}</span>`;
+}
+
+function importantProjectMeta(project) {
+  const bugs = projectBugs(project.id).filter((bug) => !['resolved', 'rejected'].includes(bug.status));
+  const critical = bugs.filter((bug) => bug.severity === 'critical').length;
+  const major = bugs.filter((bug) => bug.severity === 'major').length;
+  if (critical) return { text: `${critical} kritischer ${critical === 1 ? 'Bug' : 'Bugs'} · ${formatRelative(lastProjectActivity(project))}`, tone: 'critical' };
+  if (major) return { text: `${major} wesentliche ${major === 1 ? 'Bug' : 'Bugs'} · ${formatRelative(lastProjectActivity(project))}`, tone: 'major' };
+  if (project.status === 'planned') return { text: `${projectStatusMeta[project.status].label} · ${projectPriorityMeta[project.priority].label}`, tone: 'planned' };
+  return { text: `${projectStatusMeta[project.status].label} · zuletzt ${formatRelative(lastProjectActivity(project))}`, tone: 'neutral' };
+}
+
+function projectRow(project) {
+  const priority = project.priority;
+  const meta = importantProjectMeta(project);
+  return `
+    <button class="project-row priority-rail ${projectPriorityMeta[priority].className}" type="button" data-action="open-project" data-id="${escapeHtml(project.id)}">
+      <span class="project-row-main">
+        <span class="project-row-title-line">
+          <strong>${escapeHtml(project.name)}</strong>
+          ${project.favorite ? `<span class="favorite-mark" aria-label="Favorit">${icon('pin-filled')}</span>` : ''}
+        </span>
+        <span class="project-row-meta ${escapeHtml(meta.tone)}">${escapeHtml(meta.text)}</span>
+      </span>
+      <span class="chevron">${icon('chevron')}</span>
+    </button>`;
+}
+
+function sectionBlock(title, items, emptyCopy) {
+  if (!items.length) return '';
+  return `
+    <section class="list-section">
+      <div class="section-heading-row"><h2>${escapeHtml(title)}</h2></div>
+      <div class="project-row-list">${items.map(projectRow).join('')}</div>
+    </section>`;
+}
+
+function searchField(id, placeholder, value) {
+  return `
+    <label class="search-field" for="${escapeHtml(id)}">
+      ${icon('search')}
+      <input id="${escapeHtml(id)}" type="search" autocomplete="off" spellcheck="false" placeholder="${escapeHtml(placeholder)}" value="${escapeHtml(value)}">
+    </label>`;
+}
+
+function matchesProjectSearch(project, query) {
+  if (!query) return true;
+  const related = [
+    ...projectBugs(project.id).flatMap((bug) => [bug.id, bug.title, bug.description, ...bug.tags]),
+    ...projectIdeas(project.id).flatMap((idea) => [idea.id, idea.title, idea.description, ...idea.tags]),
+    ...projectReferences(project.id).flatMap((reference) => [reference.id, reference.title, reference.description ?? '', reference.url ?? '', ...(reference.tags ?? [])]),
+  ];
+  return [project.id, project.name, project.description, ...related].join(' ').toLocaleLowerCase('de-DE').includes(query);
+}
+
+function renderProjects() {
+  if (!state.projects.length) {
+    return renderEmpty({
+      iconName: 'folder',
+      title: 'ProjectLog ist bereit',
+      copy: 'Lege dein erstes Projekt an. Danach bündelt die Ansicht Favoriten, aktive Projekte und relevante Problemstellen automatisch.',
+      action: 'new-project',
+      actionLabel: 'Projekt anlegen',
+    });
+  }
+
+  const query = state.search.trim().toLocaleLowerCase('de-DE');
+  const projects = [...state.projects]
+    .filter((project) => (state.settings.includeArchived || project.status !== 'archived'))
+    .filter((project) => matchesProjectSearch(project, query))
+    .sort((a, b) => lastProjectActivity(b).localeCompare(lastProjectActivity(a)));
+
+  const favorites = projects.filter((project) => project.favorite && project.status !== 'archived');
+  const attention = projects.filter((project) => !project.favorite && importantProjectMeta(project).tone !== 'neutral' && project.status !== 'archived' && project.status !== 'planned');
+  const active = projects.filter((project) => !project.favorite && !attention.includes(project) && ['active', 'paused', 'completed'].includes(project.status));
+  const planned = projects.filter((project) => project.status === 'planned');
+
+  const sections = [
+    sectionBlock('Favoriten', favorites),
+    sectionBlock('Benötigt Aufmerksamkeit', attention),
+    sectionBlock('Aktiv', active),
+    sectionBlock('Geplant', planned),
+  ].filter(Boolean).join('');
+
+  return `
+    ${searchField('project-search', 'Projekte durchsuchen', state.search)}
+    ${sections || '<p class="section-empty">Keine passenden Projekte gefunden.</p>'}`;
+}
+
+function inboxItemRow(item) {
+  const typeLabel = item.type === 'link' ? 'Link' : item.type === 'file' ? 'Datei' : item.type === 'image' ? 'Bild' : 'Notiz';
+  const detail = item.type === 'link' && item.url ? safeHost(item.url) : (item.description || '').slice(0, 76);
+  return `
+    <article class="inbox-row">
+      <div class="inbox-row-icon ${escapeHtml(item.type)}">${icon(item.type === 'link' ? 'tag' : item.type === 'file' ? 'document' : item.type === 'image' ? 'square-grid' : 'document')}</div>
+      <div class="inbox-row-main">
+        <strong>${escapeHtml(item.title)}</strong>
+        ${detail ? `<p>${escapeHtml(detail)}</p>` : ''}
+        <span class="inbox-meta">${escapeHtml(typeLabel)} · ${escapeHtml(formatDateTime(item.createdAt))}</span>
+      </div>
+    </article>`;
+}
+
+function renderInbox() {
+  const query = state.search.trim().toLocaleLowerCase('de-DE');
+  const items = [...state.inbox]
+    .filter((item) => !query || [item.title, item.description ?? '', item.url ?? ''].join(' ').toLocaleLowerCase('de-DE').includes(query))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+
+  if (!items.length) {
+    return `
+      ${searchField('inbox-search', 'Eingang durchsuchen', state.search)}
+      ${renderEmpty({
+        iconName: 'archive',
+        title: 'Der Eingang ist leer',
+        copy: 'Hier landen rohe Notizen, Links und Referenzen, bevor sie einem Projekt zugeordnet werden.',
+        action: 'new-inbox',
+        actionLabel: 'Schnelle Notiz anlegen',
+      })}`;
+  }
+
+  return `
+    ${searchField('inbox-search', 'Eingang durchsuchen', state.search)}
+    <section class="list-section">
+      <div class="project-row-list inbox-list">${items.map(inboxItemRow).join('')}</div>
+    </section>`;
+}
+
+function projectContentRow(label, count, action) {
+  return `<button class="content-row" type="button" data-action="${escapeHtml(action)}"><span>${escapeHtml(label)}</span><span class="content-row-end"><strong>${escapeHtml(String(count))}</strong>${icon('chevron')}</span></button>`;
+}
+
+function projectAlert(project) {
+  const criticalBugs = projectBugs(project.id).filter((bug) => !['resolved', 'rejected'].includes(bug.status) && bug.severity === 'critical');
+  if (!criticalBugs.length) return '';
+  return `<article class="alert-panel critical">${icon('warning')}<div><strong>Kritischer Bug benötigt Aufmerksamkeit.</strong><p>${escapeHtml(criticalBugs[0].title)}</p></div></article>`;
+}
+
+function renderRecentProjectEntries(projectId) {
+  const entries = [...projectBugs(projectId), ...projectIdeas(projectId)]
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, 4);
+  if (!entries.length) return '<p class="section-empty">Noch keine Bugs oder Ideen.</p>';
+  return `<div class="entry-list compact-entries">${entries.map((entry) => {
+    const isBug = entry.id.startsWith('BUG-');
+    return `
+      <button class="entry-card" type="button" data-action="${isBug ? 'edit-bug' : 'edit-idea'}" data-id="${escapeHtml(entry.id)}">
+        <span class="entry-icon ${isBug ? 'bug-icon' : 'idea-icon'}">${icon(isBug ? 'bug' : 'bulb')}</span>
+        <span class="entry-body"><strong>${escapeHtml(entry.title)}</strong><span class="entry-meta">${escapeHtml(entry.id)} · ${escapeHtml(formatRelative(entry.updatedAt))}</span></span>
+        <span class="chevron">${icon('chevron')}</span>
+      </button>`;
+  }).join('')}</div>`;
+}
+
+function renderProjectOverview(project) {
+  const bugs = projectBugs(project.id);
+  const ideas = projectIdeas(project.id);
+  const references = projectReferences(project.id);
+  const health = calculateProjectHealth(project, bugs, ideas);
+  const healthInfo = healthMeta[health.level];
+  return `
+    ${projectAlert(project)}
+    <section class="project-summary-panel priority-rail ${projectPriorityMeta[project.priority].className}">
+      <div class="project-summary-top">
+        <div class="project-summary-badges">
+          ${badge(projectStatusMeta[project.status].label, 'project-status-badge', projectStatusMeta[project.status].icon)}
+          ${badge(projectPriorityMeta[project.priority].label, 'project-priority-badge')}
+        </div>
+        <span class="project-favorite-label">${project.favorite ? `${icon('pin-filled')} Favorit` : ''}</span>
+      </div>
+      <div class="health-panel ${escapeHtml(healthInfo.className)}">${healthBadge(project)}</div>
+    </section>
+
+    <section class="content-section project-description-section">
+      <div class="section-heading-row"><h2>Beschreibung</h2></div>
+      <p class="project-description-copy">${project.description ? escapeHtml(project.description) : 'Noch keine Projektbeschreibung.'}</p>
+    </section>
+
+    <section class="content-section">
+      <div class="section-heading-row"><h2>Inhalte</h2></div>
+      <div class="content-link-list">
+        ${projectContentRow('Bugs', bugs.length, 'open-project-bugs')}
+        ${projectContentRow('Ideen', ideas.length, 'open-project-ideas')}
+        ${projectContentRow('Referenzen', references.length, 'open-project-references')}
+        ${projectContentRow('Verlauf', state.events.filter((event) => event.projectId === project.id).length, 'open-project-history')}
+      </div>
+    </section>
+
+    <section class="content-section">
+      <div class="section-heading-row"><h2>Zuletzt geändert</h2><span>${escapeHtml(formatRelative(lastProjectActivity(project)))}</span></div>
+      ${renderRecentProjectEntries(project.id)}
+    </section>`;
+}
+
+function renderTagFilters() {
+  return `<div class="tag-filter-row" aria-label="Tags filtern">
+    <button class="filter-chip ${state.search === '' ? 'is-active' : ''}" type="button" data-action="clear-search">Alle</button>
+    ${TAG_VALUES.map((tag) => `<span class="filter-chip is-static">${escapeHtml(tagMeta[tag].label)}</span>`).join('')}
+  </div>`;
+}
+
+function renderBugRows(items) {
+  if (!items.length) return '<p class="section-empty">Keine passenden Bugs.</p>';
+  return `<div class="entry-list">${items.map((bug) => `
+      <button class="entry-card" type="button" data-action="edit-bug" data-id="${escapeHtml(bug.id)}">
+        <span class="entry-icon bug-icon">${icon(bugSeverityMeta[bug.severity].icon)}</span>
+        <span class="entry-body">
+          <strong>${escapeHtml(bug.title)}</strong>
+          <span class="entry-meta">${escapeHtml(bugStatusMeta[bug.status].label)} · ${escapeHtml(bugSeverityMeta[bug.severity].label)} · ${escapeHtml(formatRelative(bug.updatedAt))}</span>
+          ${renderTags(bug.tags)}
+        </span>
+        <span class="chevron">${icon('chevron')}</span>
+      </button>`).join('')}</div>`;
+}
+
+function renderIdeaRows(items) {
+  if (!items.length) return '<p class="section-empty">Keine passenden Ideen.</p>';
+  return `<div class="entry-list">${items.map((idea) => `
+      <button class="entry-card" type="button" data-action="edit-idea" data-id="${escapeHtml(idea.id)}">
+        <span class="entry-icon idea-icon">${icon(ideaValueMeta[idea.value].icon)}</span>
+        <span class="entry-body">
+          <strong>${escapeHtml(idea.title)}</strong>
+          <span class="entry-meta">${escapeHtml(ideaStatusMeta[idea.status].label)} · ${escapeHtml(ideaValueMeta[idea.value].label)} · ${escapeHtml(formatRelative(idea.updatedAt))}</span>
+          ${renderTags(idea.tags)}
+        </span>
+        <span class="chevron">${icon('chevron')}</span>
+      </button>`).join('')}</div>`;
+}
+
+function filterByTag(items) {
+  return items;
+}
+
+function renderProjectBugs(project) {
+  let items = projectBugs(project.id);
+  if (state.projectFilter === 'active') items = items.filter((bug) => !['resolved', 'rejected'].includes(bug.status));
+  if (state.projectFilter === 'critical') items = items.filter((bug) => bug.severity === 'critical' && !['resolved', 'rejected'].includes(bug.status));
+  if (state.projectFilter === 'resolved') items = items.filter((bug) => bug.status === 'resolved');
+  items = filterByTag(items).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return `
+    <div class="content-toolbar">
+      <div class="filter-row">
+        <button class="filter-chip ${state.projectFilter === 'active' ? 'is-active' : ''}" type="button" data-action="set-subfilter" data-filter="active">Offen</button>
+        <button class="filter-chip ${state.projectFilter === 'critical' ? 'is-active' : ''}" type="button" data-action="set-subfilter" data-filter="critical">Kritisch</button>
+        <button class="filter-chip ${state.projectFilter === 'resolved' ? 'is-active' : ''}" type="button" data-action="set-subfilter" data-filter="resolved">Behoben</button>
+        <button class="filter-chip ${state.projectFilter === 'all' ? 'is-active' : ''}" type="button" data-action="set-subfilter" data-filter="all">Alle</button>
+      </div>
+      <button class="circle-action" type="button" data-action="new-bug" aria-label="Neuer Bug">${icon('plus')}</button>
+    </div>
+    ${renderBugRows(items)}`;
+}
+
+function renderProjectIdeas(project) {
+  let items = projectIdeas(project.id);
+  if (state.projectFilter === 'open') items = items.filter((idea) => !['implemented', 'rejected'].includes(idea.status));
+  if (state.projectFilter === 'strategic') items = items.filter((idea) => idea.value === 'strategic');
+  if (state.projectFilter === 'implemented') items = items.filter((idea) => idea.status === 'implemented');
+  items = filterByTag(items).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return `
+    <div class="content-toolbar">
+      <div class="filter-row">
+        <button class="filter-chip ${state.projectFilter === 'open' ? 'is-active' : ''}" type="button" data-action="set-subfilter" data-filter="open">Offen</button>
+        <button class="filter-chip ${state.projectFilter === 'strategic' ? 'is-active' : ''}" type="button" data-action="set-subfilter" data-filter="strategic">Strategisch</button>
+        <button class="filter-chip ${state.projectFilter === 'implemented' ? 'is-active' : ''}" type="button" data-action="set-subfilter" data-filter="implemented">Umgesetzt</button>
+        <button class="filter-chip ${state.projectFilter === 'all' ? 'is-active' : ''}" type="button" data-action="set-subfilter" data-filter="all">Alle</button>
+      </div>
+      <button class="circle-action" type="button" data-action="new-idea" aria-label="Neue Idee">${icon('plus')}</button>
+    </div>
+    ${renderIdeaRows(items)}`;
+}
+
+function referenceRow(reference) {
+  const detail = reference.type === 'link' && reference.url ? safeHost(reference.url) : (reference.description || '');
+  return `
+    <article class="reference-row">
+      <div class="reference-icon">${icon(reference.type === 'link' ? 'tag' : 'document')}</div>
+      <div class="reference-main">
+        <strong>${escapeHtml(reference.title)}</strong>
+        ${detail ? `<p>${escapeHtml(detail)}</p>` : ''}
+        <div class="reference-meta-row">
+          <span>${escapeHtml(reference.type === 'link' ? 'Link' : 'Referenz')} · ${escapeHtml(formatRelative(reference.updatedAt))}</span>
+          ${renderTags(reference.tags ?? [])}
+        </div>
+      </div>
+    </article>`;
+}
+
+function renderProjectReferences(project) {
+  const items = projectReferences(project.id).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return items.length
+    ? `<section class="list-section"><div class="project-row-list">${items.map(referenceRow).join('')}</div></section>`
+    : '<p class="section-empty">Noch keine Referenzen zugeordnet.</p>';
 }
 
 function entityTitle(event) {
@@ -152,437 +592,6 @@ function eventDescription(event) {
   return 'wurde geändert';
 }
 
-function setNavigationState() {
-  const activeTab = state.projectId ? 'projects' : state.tab;
-  for (const button of nav.querySelectorAll('[data-nav]')) {
-    const active = button.dataset.nav === activeTab;
-    button.classList.toggle('is-active', active);
-    if (active) button.setAttribute('aria-current', 'page');
-    else button.removeAttribute('aria-current');
-  }
-}
-
-function renderHeader() {
-  const project = currentProject();
-  if (project) {
-    header.innerHTML = `
-      <div class="header-row project-header-row">
-        <button class="toolbar-button" type="button" data-action="back-projects" aria-label="Zurück zu Projekte">${icon('back')}</button>
-        <div class="header-title-group">
-          <p class="header-kicker">${escapeHtml(project.id)}</p>
-          <h1>${escapeHtml(project.name)}</h1>
-        </div>
-        <div class="toolbar-actions">
-          <button class="toolbar-button ${project.favorite ? 'is-selected' : ''}" type="button" data-action="toggle-favorite" aria-label="${project.favorite ? 'Favorit lösen' : 'Als Favorit markieren'}">${icon(project.favorite ? 'pin-filled' : 'pin')}</button>
-          <button class="toolbar-button" type="button" data-action="edit-project" aria-label="Projekt bearbeiten">${icon('edit')}</button>
-        </div>
-      </div>`;
-    return;
-  }
-
-  const addAction = ['dashboard', 'projects'].includes(state.tab)
-    ? `<button class="toolbar-button primary" type="button" data-action="new-project" aria-label="Neues Projekt">${icon('plus')}</button>`
-    : '<span class="toolbar-spacer" aria-hidden="true"></span>';
-  header.innerHTML = `
-    <div class="header-row">
-      <div class="header-title-group">
-        <p class="header-kicker">ProjectLog</p>
-        <h1>${navMeta[state.tab].label}</h1>
-      </div>
-      ${addAction}
-    </div>`;
-}
-
-function renderEmpty({ iconName, title, copy, action = '', actionLabel = '' }) {
-  return `
-    <section class="empty-state">
-      <div class="empty-symbol">${icon(iconName)}</div>
-      <h2>${escapeHtml(title)}</h2>
-      <p>${escapeHtml(copy)}</p>
-      ${action ? `<button class="primary-action" type="button" data-action="${escapeHtml(action)}">${escapeHtml(actionLabel)}</button>` : ''}
-    </section>`;
-}
-
-function badge(label, className = '', iconName = '') {
-  return `<span class="badge ${escapeHtml(className)}">${iconName ? icon(iconName, 'badge-icon') : ''}<span>${escapeHtml(label)}</span></span>`;
-}
-
-function renderTags(tags = []) {
-  if (!tags.length) return '';
-  return `<span class="tag-row">${tags.map((tag) => {
-    const meta = tagMeta[tag];
-    return `<span class="tag-chip">${icon(meta.icon)}${escapeHtml(meta.label)}</span>`;
-  }).join('')}</span>`;
-}
-
-function healthBadge(project) {
-  const health = calculateProjectHealth(project, projectBugs(project.id), projectIdeas(project.id));
-  const meta = healthMeta[health.level];
-  return `${badge(meta.label, `health-badge ${meta.className}`, meta.icon)}<span class="health-reason">${escapeHtml(health.reason)}</span>`;
-}
-
-function projectCard(project, { compact = false } = {}) {
-  const bugs = projectBugs(project.id);
-  const ideas = projectIdeas(project.id);
-  const openBugs = bugs.filter((bug) => !['resolved', 'rejected'].includes(bug.status));
-  const critical = openBugs.filter((bug) => bug.severity === 'critical').length;
-  const health = calculateProjectHealth(project, bugs, ideas);
-  const priority = projectPriorityMeta[project.priority];
-  const status = projectStatusMeta[project.status];
-  return `
-    <button class="project-card priority-rail ${priority.className} ${compact ? 'is-compact' : ''}" type="button" data-action="open-project" data-id="${escapeHtml(project.id)}">
-      <span class="project-card-icon">${icon('folder')}</span>
-      <span class="project-card-body">
-        <span class="project-card-title-row">
-          <strong>${escapeHtml(project.name)}</strong>
-          ${project.favorite ? `<span class="favorite-mark" aria-label="Favorit">${icon('pin-filled')}</span>` : ''}
-        </span>
-        <span class="project-card-meta">${escapeHtml(status.label)} · ${escapeHtml(priority.label)} · ${escapeHtml(formatRelative(lastProjectActivity(project)))}</span>
-        <span class="project-card-stats">
-          <span>${plural(openBugs.length, 'offener Bug', 'offene Bugs')}</span>
-          <span>${plural(ideas.length, 'Idee', 'Ideen')}</span>
-          ${critical ? `<span class="critical-count">${critical} kritisch</span>` : ''}
-        </span>
-        <span class="project-card-health ${healthMeta[health.level].className}">${icon(healthMeta[health.level].icon)}${escapeHtml(healthMeta[health.level].label)} · ${escapeHtml(health.reason)}</span>
-      </span>
-      <span class="chevron">${icon('chevron')}</span>
-    </button>`;
-}
-
-function renderMetric(value, label, iconName, className = '') {
-  return `
-    <article class="metric-card ${className}">
-      <span class="metric-icon">${icon(iconName)}</span>
-      <strong>${escapeHtml(value)}</strong>
-      <span>${escapeHtml(label)}</span>
-    </article>`;
-}
-
-function renderHeroMetric(value, label, tone = '') {
-  return `<article class="hero-metric ${escapeHtml(tone)}"><strong>${escapeHtml(String(value))}</strong><span>${escapeHtml(label)}</span></article>`;
-}
-
-function renderSpotlight(project) {
-  if (!project) return '';
-  const bugs = projectBugs(project.id);
-  const ideas = projectIdeas(project.id);
-  const openBugs = bugs.filter((bug) => !['resolved', 'rejected'].includes(bug.status));
-  const critical = openBugs.filter((bug) => bug.severity === 'critical').length;
-  const priority = projectPriorityMeta[project.priority];
-  const status = projectStatusMeta[project.status];
-  const health = calculateProjectHealth(project, bugs, ideas);
-  const healthInfo = healthMeta[health.level];
-  return `
-    <article class="spotlight-card priority-rail ${priority.className}">
-      <p class="spotlight-kicker">Im Fokus</p>
-      <div class="spotlight-title-row">
-        <h3>${escapeHtml(project.name)}</h3>
-        ${project.favorite ? `<span class="favorite-mark" aria-label="Favorit">${icon('pin-filled')}</span>` : ''}
-      </div>
-      <div class="spotlight-meta-row">
-        ${badge(status.label, 'status-badge', status.icon)}
-        ${badge(priority.label, 'priority-badge', 'flag')}
-      </div>
-      <p class="spotlight-summary">${escapeHtml(health.reason)}</p>
-      <div class="spotlight-stats">
-        <span>${plural(openBugs.length, 'offener Bug', 'offene Bugs')}</span>
-        <span>${plural(ideas.length, 'Idee', 'Ideen')}</span>
-        ${critical ? `<span class="critical-count">${critical} kritisch</span>` : ''}
-      </div>
-      <button class="inline-link" type="button" data-action="open-project" data-id="${escapeHtml(project.id)}">Projekt öffnen</button>
-      <span class="spotlight-health ${healthInfo.className}">${icon(healthInfo.icon)}${escapeHtml(healthInfo.label)}</span>
-    </article>`;
-}
-
-function renderProjectSection(title, models, emptyCopy, options = {}) {
-  const { className = '', description = '' } = options;
-  return `
-    <section class="dashboard-section ${escapeHtml(className)}">
-      <div class="section-heading-row"><div><h2>${escapeHtml(title)}</h2>${description ? `<p class="section-subtitle">${escapeHtml(description)}</p>` : ''}</div><span>${models.length}</span></div>
-      ${models.length
-        ? `<div class="dashboard-project-list">${models.map((model) => projectCard(model.project, { compact: true })).join('')}</div>`
-        : `<p class="section-empty">${escapeHtml(emptyCopy)}</p>`}
-    </section>`;
-}
-
-function renderDashboard() {
-  const model = buildDashboardModel({
-    projects: state.projects,
-    bugs: state.bugs,
-    ideas: state.ideas,
-    events: state.events,
-    includeArchived: state.settings.includeArchived,
-  });
-  const visibleIds = new Set(model.projects.map((entry) => entry.project.id));
-  const chartSeries = buildThirtyDaySeries({
-    bugs: state.bugs.filter((bug) => visibleIds.has(bug.projectId)),
-    ideas: state.ideas.filter((idea) => visibleIds.has(idea.projectId)),
-    events: state.events.filter((event) => !event.projectId || visibleIds.has(event.projectId)),
-  });
-
-  if (!state.projects.length) {
-    return renderEmpty({
-      iconName: 'dashboard',
-      title: 'Deine Projektzentrale ist bereit',
-      copy: 'Lege ein Projekt an. Dashboard, Trends und Projektgesundheit entstehen aus deinen echten Einträgen.',
-      action: 'new-project',
-      actionLabel: 'Erstes Projekt anlegen',
-    });
-  }
-
-  const spotlight = model.favorites[0]?.project ?? model.attention[0]?.project ?? model.projects[0]?.project ?? null;
-
-  return `
-    <section class="dashboard-hero dashboard-overview">
-      <div class="dashboard-overview-main">
-        <p>Portfolio</p>
-        <h2>${model.metrics.activeProjects} ${model.metrics.activeProjects === 1 ? 'aktives Projekt' : 'aktive Projekte'}</h2>
-        <span>${model.metrics.criticalBugs ? `${model.metrics.criticalBugs} kritische Bugs benötigen Aufmerksamkeit` : 'Keine kritischen Bugs im sichtbaren Portfolio.'}</span>
-        <div class="hero-metric-row" aria-label="Portfolio-Kurzüberblick">
-          ${renderHeroMetric(model.metrics.openBugs, 'offene Bugs')}
-          ${renderHeroMetric(model.metrics.criticalBugs, 'kritisch', model.metrics.criticalBugs ? 'is-critical' : '')}
-          ${renderHeroMetric(model.metrics.implementedIdeas30d, 'Ideen · 30 T.')}
-        </div>
-      </div>
-      <div class="dashboard-overview-side">
-        ${renderSpotlight(spotlight)}
-      </div>
-    </section>
-
-    <section class="dashboard-grid" aria-label="Portfolio-Kennzahlen">
-      ${renderMetric(model.metrics.activeProjects, 'aktive Projekte', 'folder')}
-      ${renderMetric(model.metrics.openBugs, 'offene Bugs', 'bug')}
-      ${renderMetric(model.metrics.criticalBugs, 'kritische Bugs', 'severity-critical', model.metrics.criticalBugs ? 'metric-critical' : '')}
-      ${renderMetric(model.metrics.implementedIdeas30d, 'umgesetzte Ideen · 30 T.', 'sparkles')}
-    </section>
-
-    <section class="dashboard-story-grid">
-      <div class="dashboard-story-column">
-        ${renderProjectSection('Favoriten', model.favorites, 'Noch keine Projekte angeheftet.', { description: 'Deine manuell markierten Projekte – automatisch nach letzter Aktivität sortiert.' })}
-        ${renderProjectSection('Projektlage', model.attention.filter((item) => !item.project.favorite), 'Alle übrigen sichtbaren Projekte sind stabil und ohne besondere Priorität.', { description: 'Automatisch hervorgehobene Projekte mit erhöhter Relevanz, Beobachtungsbedarf oder strategischer Bedeutung.' })}
-      </div>
-      <div class="dashboard-story-column">
-        <section class="dashboard-section chart-section dashboard-panel-section">
-          ${renderTrendChart(chartSeries)}
-        </section>
-
-        <section class="dashboard-section dashboard-panel-section">
-          <div class="section-heading-row"><div><h2>Letzte Aktivität</h2><p class="section-subtitle">Wichtige Änderungen der letzten Einträge – ohne endlosen Feed.</p></div><button type="button" class="link-button" data-action="open-activity">Alle anzeigen</button></div>
-          ${model.recentEvents.length
-            ? `<ol class="activity-list compact-activity">${model.recentEvents.slice(0, 5).map(renderEventItem).join('')}</ol>`
-            : '<p class="section-empty">Relevante Änderungen erscheinen hier automatisch.</p>'}
-        </section>
-      </div>
-    </section>`;
-}
-
-function matchesProjectSearch(project, query) {
-  if (!query) return true;
-  const related = [
-    ...projectBugs(project.id).flatMap((bug) => [bug.id, bug.title, bug.description, ...bug.tags]),
-    ...projectIdeas(project.id).flatMap((idea) => [idea.id, idea.title, idea.description, ...idea.tags]),
-  ];
-  return [project.id, project.name, project.description, ...related]
-    .join(' ')
-    .toLocaleLowerCase('de-DE')
-    .includes(query);
-}
-
-function projectFilterMatches(project) {
-  if (state.projectFilter === 'favorites') return project.favorite;
-  if (state.projectFilter === 'active') return ['active', 'paused'].includes(project.status);
-  if (state.projectFilter === 'planned') return project.status === 'planned';
-  if (state.projectFilter === 'archived') return project.status === 'archived';
-  return state.settings.includeArchived || project.status !== 'archived';
-}
-
-function renderFilterButton(label, value, active, action = 'project-filter') {
-  return `<button class="filter-chip ${active ? 'is-active' : ''}" type="button" data-action="${action}" data-value="${escapeHtml(value)}">${escapeHtml(label)}</button>`;
-}
-
-function renderProjects() {
-  const query = state.search.trim().toLocaleLowerCase('de-DE');
-  const projects = [...state.projects]
-    .filter((project) => projectFilterMatches(project) && matchesProjectSearch(project, query))
-    .sort((a, b) => Number(b.favorite) - Number(a.favorite) || lastProjectActivity(b).localeCompare(lastProjectActivity(a)));
-
-  return `
-    <div class="search-field">
-      ${icon('search')}
-      <label class="visually-hidden" for="project-search">Projekte, Bugs und Ideen durchsuchen</label>
-      <input id="project-search" type="search" placeholder="Projekte, Bugs und Ideen" value="${escapeHtml(state.search)}" autocomplete="off">
-    </div>
-    <div class="filter-row" aria-label="Projektfilter">
-      ${renderFilterButton('Alle', 'all', state.projectFilter === 'all')}
-      ${renderFilterButton('Favoriten', 'favorites', state.projectFilter === 'favorites')}
-      ${renderFilterButton('Aktiv', 'active', state.projectFilter === 'active')}
-      ${renderFilterButton('Geplant', 'planned', state.projectFilter === 'planned')}
-      ${renderFilterButton('Archiviert', 'archived', state.projectFilter === 'archived')}
-    </div>
-    <div class="section-heading-row list-heading"><h2>Projekte</h2><span>${projects.length}</span></div>
-    ${projects.length
-      ? `<div class="project-list">${projects.map((project) => projectCard(project)).join('')}</div>`
-      : renderEmpty({
-          iconName: query ? 'search' : 'folder',
-          title: query ? 'Nichts gefunden' : 'Keine Projekte in diesem Filter',
-          copy: query ? 'Passe Suche oder Filter an.' : 'Lege ein neues Projekt an oder ändere den Filter.',
-          action: query ? '' : 'new-project',
-          actionLabel: 'Projekt anlegen',
-        })}`;
-}
-
-function severityBadge(severity) {
-  const meta = bugSeverityMeta[severity];
-  return badge(meta.label, `severity-badge ${meta.className}`, meta.icon);
-}
-
-function ideaValueBadge(value) {
-  const meta = ideaValueMeta[value];
-  return badge(meta.label, `idea-value-badge ${meta.className}`, meta.icon);
-}
-
-function statusBadge(status, type) {
-  const meta = type === 'bug' ? bugStatusMeta[status] : ideaStatusMeta[status];
-  return badge(meta?.label ?? status, 'status-badge');
-}
-
-function renderBugRows(items) {
-  if (!items.length) return renderEmpty({ iconName: 'bug', title: 'Keine Bugs', copy: 'Für diesen Filter sind keine Bugs vorhanden.', action: 'new-bug', actionLabel: 'Bug erfassen' });
-  return `<div class="entry-list">${items.map((bug) => `
-    <button class="entry-card" type="button" data-action="edit-bug" data-id="${escapeHtml(bug.id)}">
-      <span class="entry-icon bug-icon">${icon('bug')}</span>
-      <span class="entry-body">
-        <span class="entry-title-row"><strong>${escapeHtml(bug.title)}</strong><span>${escapeHtml(bug.id)}</span></span>
-        <span class="badge-row">${severityBadge(bug.severity)}${statusBadge(bug.status, 'bug')}</span>
-        ${renderTags(bug.tags)}
-        <span class="entry-meta">Geändert ${escapeHtml(formatRelative(bug.updatedAt))}</span>
-      </span>
-      <span class="chevron">${icon('chevron')}</span>
-    </button>`).join('')}</div>`;
-}
-
-function renderIdeaRows(items) {
-  if (!items.length) return renderEmpty({ iconName: 'bulb', title: 'Keine Ideen', copy: 'Für diesen Filter sind keine Ideen vorhanden.', action: 'new-idea', actionLabel: 'Idee erfassen' });
-  return `<div class="entry-list">${items.map((idea) => `
-    <button class="entry-card" type="button" data-action="edit-idea" data-id="${escapeHtml(idea.id)}">
-      <span class="entry-icon idea-icon ${ideaValueMeta[idea.value].className}">${icon(ideaValueMeta[idea.value].icon)}</span>
-      <span class="entry-body">
-        <span class="entry-title-row"><strong>${escapeHtml(idea.title)}</strong><span>${escapeHtml(idea.id)}</span></span>
-        <span class="badge-row">${ideaValueBadge(idea.value)}${statusBadge(idea.status, 'idea')}</span>
-        ${renderTags(idea.tags)}
-        <span class="entry-meta">Geändert ${escapeHtml(formatRelative(idea.updatedAt))}</span>
-      </span>
-      <span class="chevron">${icon('chevron')}</span>
-    </button>`).join('')}</div>`;
-}
-
-function renderProjectOverview(project) {
-  const bugs = projectBugs(project.id);
-  const ideas = projectIdeas(project.id);
-  const openBugs = bugs.filter((bug) => !['resolved', 'rejected'].includes(bug.status));
-  const resolved = bugs.filter((bug) => bug.status === 'resolved').length;
-  const implemented = ideas.filter((idea) => idea.status === 'implemented').length;
-  const status = projectStatusMeta[project.status];
-  const priority = projectPriorityMeta[project.priority];
-  return `
-    <section class="project-summary-panel priority-rail ${priority.className}">
-      <div class="project-summary-top">
-        <div class="project-summary-badges">
-          ${badge(status.label, 'project-status-badge', status.icon)}
-          ${badge(priority.label, 'project-priority-badge')}
-        </div>
-        <span class="project-favorite-label">${project.favorite ? `${icon('pin-filled')} Favorit` : ''}</span>
-      </div>
-      <div class="health-panel">${healthBadge(project)}</div>
-      ${project.description ? `<p>${escapeHtml(project.description)}</p>` : '<p class="muted">Noch keine Projektbeschreibung.</p>'}
-    </section>
-
-    <section class="dashboard-grid project-metrics" aria-label="Projektkennzahlen">
-      ${renderMetric(openBugs.length, 'offene Bugs', 'bug')}
-      ${renderMetric(resolved, 'behoben', 'check-circle')}
-      ${renderMetric(ideas.length, 'Ideen', 'bulb')}
-      ${renderMetric(implemented, 'umgesetzt', 'sparkles')}
-    </section>
-
-    <div class="quick-actions">
-      <button class="quick-action bug-action" type="button" data-action="new-bug">${icon('bug')}Neuer Bug</button>
-      <button class="quick-action idea-action" type="button" data-action="new-idea">${icon('bulb')}Neue Idee</button>
-    </div>
-
-    <section class="content-section">
-      <div class="section-heading-row"><h2>Zuletzt geändert</h2><span>${escapeHtml(formatRelative(lastProjectActivity(project)))}</span></div>
-      ${renderRecentProjectEntries(project.id)}
-    </section>`;
-}
-
-function renderRecentProjectEntries(projectId) {
-  const entries = [...projectBugs(projectId), ...projectIdeas(projectId)]
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-    .slice(0, 4);
-  if (!entries.length) return '<p class="section-empty">Noch keine Bugs oder Ideen.</p>';
-  return `<div class="entry-list compact-entries">${entries.map((entry) => {
-    const isBug = entry.id.startsWith('BUG-');
-    return `
-      <button class="entry-card" type="button" data-action="${isBug ? 'edit-bug' : 'edit-idea'}" data-id="${escapeHtml(entry.id)}">
-        <span class="entry-icon ${isBug ? 'bug-icon' : 'idea-icon'}">${icon(isBug ? 'bug' : 'bulb')}</span>
-        <span class="entry-body"><strong>${escapeHtml(entry.title)}</strong><span class="entry-meta">${escapeHtml(entry.id)} · ${escapeHtml(formatRelative(entry.updatedAt))}</span></span>
-        <span class="chevron">${icon('chevron')}</span>
-      </button>`;
-  }).join('')}</div>`;
-}
-
-function filterByTag(items) {
-  if (state.tagFilter === 'all') return items;
-  return items.filter((item) => item.tags.includes(state.tagFilter));
-}
-
-function renderProjectBugs(project) {
-  let items = projectBugs(project.id);
-  if (state.bugFilter === 'active') items = items.filter((bug) => !['resolved', 'rejected'].includes(bug.status));
-  if (state.bugFilter === 'critical') items = items.filter((bug) => bug.severity === 'critical' && !['resolved', 'rejected'].includes(bug.status));
-  if (state.bugFilter === 'resolved') items = items.filter((bug) => bug.status === 'resolved');
-  items = filterByTag(items).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  return `
-    <div class="content-toolbar">
-      <div class="filter-row">
-        ${renderFilterButton('Offen', 'active', state.bugFilter === 'active', 'bug-filter')}
-        ${renderFilterButton('Kritisch', 'critical', state.bugFilter === 'critical', 'bug-filter')}
-        ${renderFilterButton('Behoben', 'resolved', state.bugFilter === 'resolved', 'bug-filter')}
-        ${renderFilterButton('Alle', 'all', state.bugFilter === 'all', 'bug-filter')}
-      </div>
-      <button class="circle-action" type="button" data-action="new-bug" aria-label="Neuer Bug">${icon('plus')}</button>
-    </div>
-    ${renderTagFilters()}
-    ${renderBugRows(items)}`;
-}
-
-function renderProjectIdeas(project) {
-  let items = projectIdeas(project.id);
-  if (state.ideaFilter === 'open') items = items.filter((idea) => !['implemented', 'rejected'].includes(idea.status));
-  if (state.ideaFilter === 'strategic') items = items.filter((idea) => idea.value === 'strategic');
-  if (state.ideaFilter === 'implemented') items = items.filter((idea) => idea.status === 'implemented');
-  items = filterByTag(items).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  return `
-    <div class="content-toolbar">
-      <div class="filter-row">
-        ${renderFilterButton('Offen', 'open', state.ideaFilter === 'open', 'idea-filter')}
-        ${renderFilterButton('Strategisch', 'strategic', state.ideaFilter === 'strategic', 'idea-filter')}
-        ${renderFilterButton('Umgesetzt', 'implemented', state.ideaFilter === 'implemented', 'idea-filter')}
-        ${renderFilterButton('Alle', 'all', state.ideaFilter === 'all', 'idea-filter')}
-      </div>
-      <button class="circle-action" type="button" data-action="new-idea" aria-label="Neue Idee">${icon('plus')}</button>
-    </div>
-    ${renderTagFilters()}
-    ${renderIdeaRows(items)}`;
-}
-
-function renderTagFilters() {
-  return `<div class="tag-filter-row" aria-label="Tags filtern">
-    ${renderFilterButton('Alle Tags', 'all', state.tagFilter === 'all', 'tag-filter')}
-    ${TAG_VALUES.map((tag) => renderFilterButton(tagMeta[tag].label, tag, state.tagFilter === tag, 'tag-filter')).join('')}
-  </div>`;
-}
-
 function renderEventItem(event) {
   return `
     <li class="activity-item">
@@ -599,16 +608,9 @@ function renderProjectHistory(project) {
   const events = state.events
     .filter((event) => event.projectId === project.id)
     .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-  const summaries = state.monthlySummaries
-    .filter((summary) => summary.projectId === project.id)
-    .sort((a, b) => b.month.localeCompare(a.month));
-  return `
-    <section class="history-intro">
-      ${icon('history')}
-      <div><h2>Verlauf</h2><p>Nur relevante Status-, Bewertungs-, Prioritäts- und Tagänderungen. Einzelereignisse werden nach zwölf Monaten monatlich verdichtet.</p></div>
-    </section>
-    ${events.length ? `<ol class="activity-list">${events.map(renderEventItem).join('')}</ol>` : '<p class="section-empty">Noch keine protokollierten Änderungen.</p>'}
-    ${summaries.length ? `<section class="monthly-summary"><h2>Verdichtete Monate</h2>${summaries.map((summary) => `<article><strong>${escapeHtml(summary.month)}</strong><span>${Object.values(summary.counts).reduce((sum, count) => sum + count, 0)} relevante Änderungen</span></article>`).join('')}</section>` : ''}`;
+  return events.length
+    ? `<ol class="activity-list">${events.map(renderEventItem).join('')}</ol>`
+    : '<p class="section-empty">Noch keine protokollierten Änderungen.</p>';
 }
 
 function renderProject() {
@@ -617,40 +619,38 @@ function renderProject() {
     state.projectId = null;
     return renderProjects();
   }
-  const views = [
-    ['overview', 'Übersicht'],
-    ['bugs', 'Bugs'],
-    ['ideas', 'Ideen'],
-    ['history', 'Verlauf'],
-  ];
-  const content = state.projectView === 'bugs'
-    ? renderProjectBugs(project)
-    : state.projectView === 'ideas'
-      ? renderProjectIdeas(project)
-      : state.projectView === 'history'
-        ? renderProjectHistory(project)
-        : renderProjectOverview(project);
-  return `
-    <div class="segmented-control project-segments" role="tablist" aria-label="Projektbereiche">
-      ${views.map(([value, label]) => `<button type="button" role="tab" aria-selected="${state.projectView === value}" class="${state.projectView === value ? 'is-active' : ''}" data-action="project-view" data-view="${value}">${label}</button>`).join('')}
-    </div>
-    ${content}`;
+  if (state.projectView === 'bugs') return renderProjectBugs(project);
+  if (state.projectView === 'ideas') return renderProjectIdeas(project);
+  if (state.projectView === 'references') return renderProjectReferences(project);
+  if (state.projectView === 'history') return renderProjectHistory(project);
+  return renderProjectOverview(project);
 }
 
-function renderActivity() {
-  const events = [...state.events].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-  if (!events.length) return renderEmpty({ iconName: 'clock', title: 'Noch keine Aktivität', copy: 'Relevante Änderungen werden datensparend lokal protokolliert.' });
-  const groups = new Map();
-  for (const event of events) {
-    const key = new Date(event.timestamp).toLocaleDateString('de-DE');
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(event);
-  }
-  return [...groups.entries()].map(([date, items], index) => `
-    <section class="activity-group">
-      <h2>${index === 0 && new Date(items[0].timestamp).toDateString() === new Date().toDateString() ? 'Heute' : escapeHtml(date)}</h2>
-      <ol class="activity-list">${items.map(renderEventItem).join('')}</ol>
-    </section>`).join('');
+function renderLibrary() {
+  const query = state.search.trim().toLocaleLowerCase('de-DE');
+  const references = [...state.references]
+    .filter((item) => !query || [item.title, item.description ?? '', item.url ?? '', ...(item.tags ?? [])].join(' ').toLocaleLowerCase('de-DE').includes(query))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+
+  return `
+    ${searchField('library-search', 'Suche in Bibliothek', state.search)}
+    <div class="tag-filter-row library-filter-row">
+      <span class="filter-chip is-active">Alle</span>
+      <span class="filter-chip is-static">Links</span>
+      <span class="filter-chip is-static">Bilder</span>
+      <span class="filter-chip is-static">Dateien</span>
+      <span class="filter-chip is-static">Notizen</span>
+    </div>
+    ${references.length
+      ? `<section class="list-section"><div class="project-row-list reference-list">${references.map(referenceRow).join('')}</div></section>`
+      : '<p class="section-empty">Noch keine verarbeiteten Referenzen.</p>'}`;
+}
+
+function renderArchive() {
+  const archived = state.projects.filter((project) => project.status === 'archived');
+  return archived.length
+    ? `<section class="list-section"><div class="project-row-list">${archived.map(projectRow).join('')}</div></section>`
+    : '<p class="section-empty">Noch kein archiviertes Projekt.</p>';
 }
 
 function appBaseUrl() {
@@ -660,11 +660,11 @@ function appBaseUrl() {
   return url.toString();
 }
 
-function settingsRow({ iconName, title, subtitle, action = '', accessory = '', extra = '', className = '' }) {
+function settingsRow({ iconName, title, subtitle, action = '', accessory = '', className = '' }) {
   const content = `
       <span class="settings-icon">${icon(iconName)}</span>
       <span class="settings-copy"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(subtitle)}</span></span>
-      ${action ? `<span class="settings-accessory">${accessory || icon('chevron')}</span>` : extra}`;
+      ${action ? `<span class="settings-accessory">${accessory || icon('chevron')}</span>` : ''}`;
   return action
     ? `<button type="button" class="settings-row settings-action-row ${className}" data-action="${action}" aria-label="${escapeHtml(title)}">${content}</button>`
     : `<div class="settings-row ${className}">${content}</div>`;
@@ -673,61 +673,35 @@ function settingsRow({ iconName, title, subtitle, action = '', accessory = '', e
 function renderSettings() {
   const base = appBaseUrl();
   const sampleProject = state.projects[0]?.id ?? 'PRJ-DEINE-ID';
-  const commands = [
-    ['Neues Projekt', `${base}?action=new-project`],
-    ['Neuer Bug', `${base}?action=new-bug&project=${encodeURIComponent(sampleProject)}`],
-    ['Neue Idee', `${base}?action=new-idea&project=${encodeURIComponent(sampleProject)}`],
-  ];
   return `
-    <section class="settings-section">
-      <h2>Darstellung</h2>
-      <div class="settings-group">
-        <div class="settings-row">
-          <span class="settings-icon">${icon('dashboard')}</span>
-          <span class="settings-copy"><strong>Startansicht</strong><span>Welche Übersicht beim normalen Start erscheint</span></span>
-          <select class="inline-select" data-setting="startView" aria-label="Startansicht">
-            <option value="dashboard" ${state.settings.startView === 'dashboard' ? 'selected' : ''}>Dashboard</option>
-            <option value="projects" ${state.settings.startView === 'projects' ? 'selected' : ''}>Projekte</option>
-          </select>
-        </div>
-        <label class="settings-row toggle-row">
-          <span class="settings-icon">${icon('archive')}</span>
-          <span class="settings-copy"><strong>Archivierte standardmäßig anzeigen</strong><span>Bezieht archivierte Projekte in Dashboard und Übersichten ein</span></span>
-          <input class="switch-input" type="checkbox" data-setting="includeArchived" ${state.settings.includeArchived ? 'checked' : ''}>
-          <span class="switch-control" aria-hidden="true"></span>
-        </label>
-      </div>
-    </section>
-
     <section class="settings-section">
       <h2>Datensicherung</h2>
       <div class="settings-group">
-        ${settingsRow({ iconName: 'export', title: 'Backup in Dateien sichern', subtitle: 'JSON über das iOS-Teilen-Menü ablegen', action: 'share-backup', accessory: 'Teilen' })}
-        ${settingsRow({ iconName: 'import', title: 'JSON-Backup importieren', subtitle: 'Prüft und migriert v1- sowie v2-Backups vor dem Ersetzen', action: 'import-backup' })}
+        ${settingsRow({ iconName: 'export', title: 'Backup in Dateien sichern', subtitle: 'Exportiert Projekte, Einträge, Verlauf sowie Eingang und Referenzen.', action: 'share-backup', accessory: 'Teilen' })}
+        ${settingsRow({ iconName: 'import', title: 'JSON-Backup importieren', subtitle: 'Prüft das Backup und stellt den lokalen Bestand wieder her.', action: 'import-backup' })}
       </div>
-      <p class="settings-note">Vor einem Import erstellt ProjectLog intern eine Sicherheitskopie des aktuellen Bestands.</p>
     </section>
 
     <section class="settings-section">
-      <h2>Kurzbefehle und URLs</h2>
+      <h2>URLs</h2>
       <div class="settings-group">
-        ${commands.map(([label, url]) => settingsRow({
-          iconName: 'copy', title: label, subtitle: 'Sicheren HTTPS-Link kopieren', action: 'copy-url', accessory: 'Kopieren',
-        }).replace('data-action="copy-url"', `data-action="copy-url" data-url="${escapeHtml(url)}"`)).join('')}
+        ${settingsRow({ iconName: 'copy', title: 'Neues Projekt', subtitle: `${base}?action=new-project`, action: 'copy-url-project' })}
+        ${settingsRow({ iconName: 'copy', title: 'Neuer Bug', subtitle: `${base}?action=new-bug&project=${sampleProject}`, action: 'copy-url-bug' })}
+        ${settingsRow({ iconName: 'copy', title: 'Neue Idee', subtitle: `${base}?action=new-idea&project=${sampleProject}`, action: 'copy-url-idea' })}
       </div>
     </section>
 
     <section class="settings-section">
       <h2>Lokale Daten</h2>
       <div class="settings-group">
-        ${settingsRow({ iconName: 'sparkles', title: 'Demodaten hinzufügen', subtitle: 'Erzeugt ein kleines Portfolio zum Testen von Dashboard und Filtern', action: 'load-demo' })}
-        ${settingsRow({ iconName: 'trash', title: 'Alle lokalen Daten löschen', subtitle: 'Entfernt Projekte, Einträge, Verlauf und Monatswerte', action: 'clear-all', className: 'danger-row' })}
+        ${settingsRow({ iconName: 'sparkles', title: 'Demodaten hinzufügen', subtitle: 'Legt ein kleines Testportfolio mit Eingang und Referenzen an.', action: 'load-demo' })}
+        ${settingsRow({ iconName: 'trash', title: 'Alle lokalen Daten löschen', subtitle: 'Entfernt Projekte, Einträge, Verlauf, Eingang und Referenzen.', action: 'clear-all', className: 'danger-row' })}
       </div>
     </section>
 
     <footer class="version-footer">
       <strong>ProjectLog ${APP_VERSION}</strong>
-      <span>Backup-Schema 2 · lokal · ohne Telemetrie</span>
+      <span>lokal · Apple-orientiertes Projektprotokoll</span>
     </footer>`;
 }
 
@@ -736,13 +710,15 @@ function render() {
   setNavigationState();
   main.innerHTML = state.projectId
     ? renderProject()
-    : state.tab === 'dashboard'
-      ? renderDashboard()
-      : state.tab === 'projects'
-        ? renderProjects()
-        : state.tab === 'activity'
-          ? renderActivity()
-          : renderSettings();
+    : state.tab === 'projects'
+      ? renderProjects()
+      : state.tab === 'inbox'
+        ? renderInbox()
+        : state.tab === 'library'
+          ? renderLibrary()
+          : state.tab === 'archive'
+            ? renderArchive()
+            : renderSettings();
 }
 
 async function refresh({ renderView = true } = {}) {
@@ -754,7 +730,17 @@ async function refresh({ renderView = true } = {}) {
     repository.listMonthlySummaries(),
     repository.getSettings(),
   ]);
-  Object.assign(state, { projects, bugs, ideas, events, monthlySummaries, settings });
+  const extras = loadExtras();
+  Object.assign(state, {
+    projects,
+    bugs,
+    ideas,
+    events,
+    monthlySummaries,
+    settings: { ...settings, startView: 'projects' },
+    inbox: extras.inbox,
+    references: extras.references,
+  });
   if (renderView) render();
 }
 
@@ -773,14 +759,12 @@ function projectFields(entity) {
       <div class="field-group"><label for="field-status">Status</label><select class="field-control" id="field-status" name="status">${optionList(projectStatusMeta, entity?.status ?? 'active')}</select></div>
       <div class="field-group"><label for="field-priority">Priorität</label><select class="field-control" id="field-priority" name="priority">${optionList(projectPriorityMeta, entity?.priority ?? 'normal')}</select></div>
     </div>
-    <label class="editor-toggle"><input type="checkbox" name="favorite" ${entity?.favorite ? 'checked' : ''}><span>${icon('pin')}Im Dashboard als Favorit anheften</span></label>`;
+    <label class="editor-toggle"><input type="checkbox" name="favorite" ${entity?.favorite ? 'checked' : ''}><span>${icon('pin')}Als Favorit markieren</span></label>`;
 }
 
 function entityHistory(entity, type) {
   if (!entity) return '';
-  const events = state.events
-    .filter((event) => event.entityId === entity.id && event.entityType === type)
-    .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+  const events = state.events.filter((event) => event.entityId === entity.id && event.entityType === type).sort((a, b) => b.timestamp.localeCompare(a.timestamp));
   return `
     <details class="entry-history">
       <summary>${icon('history')}Verlauf <span>${events.length}</span></summary>
@@ -908,8 +892,9 @@ async function deleteEditorEntity() {
 
 async function shareBackup() {
   const backup = await repository.exportBackup();
+  backup.data.extras = { inbox: state.inbox, references: state.references };
   const blob = new Blob([`${JSON.stringify(backup, null, 2)}\n`], { type: 'application/json' });
-  const filename = buildBackupFilename(new Date());
+  const filename = buildBackupFilename(new Date()).replace('.json', '-v3.json');
   const file = new File([blob], filename, { type: 'application/json' });
   if (navigator.canShare?.({ files: [file] })) {
     try {
@@ -933,39 +918,74 @@ async function importBackup(file) {
   const parsed = JSON.parse(await file.text());
   if (!window.confirm('Der Import ersetzt den aktuellen lokalen Bestand. Fortfahren?')) return;
   await repository.importBackup(parsed);
+  state.inbox = Array.isArray(parsed.data?.extras?.inbox) ? parsed.data.extras.inbox : [];
+  state.references = Array.isArray(parsed.data?.extras?.references) ? parsed.data.extras.references : [];
+  saveExtras();
   state.projectId = null;
   await refresh({ renderView: false });
-  state.tab = state.settings.startView;
+  state.tab = 'projects';
   render();
   showToast('Backup geprüft und importiert.');
+}
+
+function seedExtraData(now, projects) {
+  const references = [
+    {
+      id: nextExtraId('REF'),
+      type: 'link',
+      title: 'Apple Human Interface Guidelines',
+      description: 'Designreferenz für Navigation, Listen und klare Hierarchien.',
+      url: 'https://developer.apple.com/design/human-interface-guidelines/',
+      tags: ['design'],
+      projectIds: projects.length ? [projects[0].id] : [],
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+  const inbox = [
+    {
+      id: nextExtraId('INB'),
+      type: 'note',
+      title: 'Navigation noch weiter vereinfachen',
+      description: 'Mögliche Feinschliffe für Tab-Bar und Tiefenstaffelung sammeln.',
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+  state.references = references;
+  state.inbox = inbox;
+  saveExtras();
 }
 
 async function loadDemo() {
   const now = new Date().toISOString();
   const projects = [
-    createProject({ name: 'ProjectLog 2.0', description: 'Lokale Projektzentrale mit Dashboard und Verlauf.', status: 'active', priority: 'strategic', favorite: true }, { now }),
-    createProject({ name: 'Foto-Workflow', description: 'Natürlicher iPhone- und Photomator-Workflow.', status: 'planned', priority: 'high', favorite: false }, { now }),
+    createProject({ name: 'ProjectLog', description: 'Lokale Projektzentrale für Projekte, Bugs, Ideen und Referenzen.', status: 'active', priority: 'strategic', favorite: true }, { now }),
+    createProject({ name: 'PlasmaLog', description: 'Bestands- und Planungsapp für Plasma.', status: 'active', priority: 'high', favorite: false }, { now }),
+    createProject({ name: 'CortexOS', description: 'Persönliches System- und Automationsprojekt.', status: 'planned', priority: 'strategic', favorite: false }, { now }),
   ];
   for (const project of projects) await repository.saveEntity('project', project);
-  await repository.saveEntity('bug', createBug({ projectId: projects[0].id, title: 'PWA-Cache aktualisieren', description: 'Neue Releases müssen zuverlässig erscheinen.', status: 'review', severity: 'critical', tags: ['technology', 'quality'] }, { sequence: await repository.nextSequence('bug'), now }));
-  await repository.saveEntity('bug', createBug({ projectId: projects[0].id, title: 'Abstände im Detail prüfen', status: 'active', severity: 'minor', tags: ['design'] }, { sequence: await repository.nextSequence('bug'), now }));
-  await repository.saveEntity('bug', createBug({ projectId: projects[1].id, title: 'Export-Rückmeldung verbessern', status: 'new', severity: 'major', tags: ['feature', 'quality'] }, { sequence: await repository.nextSequence('bug'), now }));
-  await repository.saveEntity('idea', createIdea({ projectId: projects[0].id, title: 'Portfolio-Dashboard', status: 'planned', value: 'strategic', tags: ['feature', 'design'] }, { sequence: await repository.nextSequence('idea'), now }));
-  await repository.saveEntity('idea', createIdea({ projectId: projects[1].id, title: 'Bearbeitungsrezepte speichern', status: 'reviewed', value: 'relevant', tags: ['feature', 'documentation'] }, { sequence: await repository.nextSequence('idea'), now }));
-  await repository.saveEntity('idea', createIdea({ projectId: projects[1].id, title: 'Leerer Zustand mit Hinweis', status: 'new', value: 'small', tags: ['design'] }, { sequence: await repository.nextSequence('idea'), now }));
+  await repository.saveEntity('bug', createBug({ projectId: projects[0].id, title: 'Kritischer Bug benötigt Aufmerksamkeit', description: 'Feinschliff im Detailscreen prüfen.', status: 'review', severity: 'critical', tags: ['design', 'quality'] }, { sequence: await repository.nextSequence('bug'), now }));
+  await repository.saveEntity('bug', createBug({ projectId: projects[1].id, title: 'Heatmap prüfen', description: 'Visuelle Dichte im Dashboard reduzieren.', status: 'active', severity: 'major', tags: ['feature'] }, { sequence: await repository.nextSequence('bug'), now }));
+  await repository.saveEntity('idea', createIdea({ projectId: projects[0].id, title: 'Referenzbibliothek', description: 'Projektübergreifende Sicht auf verarbeitete Materialien.', status: 'planned', value: 'strategic', tags: ['design', 'feature'] }, { sequence: await repository.nextSequence('idea'), now }));
+  await repository.saveEntity('idea', createIdea({ projectId: projects[2].id, title: 'Dateistruktur überdenken', description: 'CortexOS-Ziele sauberer gliedern.', status: 'reviewed', value: 'relevant', tags: ['technology'] }, { sequence: await repository.nextSequence('idea'), now }));
+  seedExtraData(now, projects);
   state.projectId = null;
-  state.tab = 'dashboard';
+  state.tab = 'projects';
   await refresh();
   main.scrollTop = 0;
   showToast('Demodaten hinzugefügt.');
 }
 
 async function clearAll() {
-  if (!window.confirm('Alle lokalen Projekte, Einträge und Verläufe unwiderruflich löschen?')) return;
+  if (!window.confirm('Alle lokalen Projekte, Einträge, Verläufe, Referenzen und Eingangseinträge unwiderruflich löschen?')) return;
   await repository.clearAll();
+  state.inbox = [];
+  state.references = [];
+  saveExtras();
   state.projectId = null;
   await refresh({ renderView: false });
-  state.tab = state.settings.startView;
+  state.tab = 'projects';
   render();
   showToast('Alle lokalen Daten gelöscht.');
 }
@@ -976,34 +996,67 @@ async function toggleFavorite() {
   const updated = updateEntity('project', project, { favorite: !project.favorite }, new Date().toISOString());
   await repository.saveEntity('project', updated);
   await refresh();
-  showToast(updated.favorite ? 'Als Favorit angeheftet.' : 'Favorit gelöst.');
+  showToast(updated.favorite ? 'Als Favorit markiert.' : 'Favorit entfernt.');
+}
+
+function createInboxNote() {
+  const title = window.prompt('Titel für den Eingangseintrag:');
+  if (!title) return;
+  const description = window.prompt('Kurze Notiz (optional):') ?? '';
+  const now = new Date().toISOString();
+  state.inbox.unshift({
+    id: nextExtraId('INB'),
+    type: 'note',
+    title: title.trim(),
+    description: description.trim(),
+    createdAt: now,
+    updatedAt: now,
+  });
+  saveExtras();
+  render();
+  showToast('Eingangseintrag angelegt.');
+}
+
+function copyText(value) {
+  return navigator.clipboard.writeText(value);
 }
 
 async function handleAction(action, target) {
+  state.menuOpen = false;
   switch (action) {
     case 'new-project': openEditor('project'); break;
-    case 'open-project': state.projectId = target.dataset.id; state.projectView = 'overview'; state.tagFilter = 'all'; render(); main.scrollTop = 0; break;
+    case 'new-inbox': createInboxNote(); break;
+    case 'open-project': state.projectId = target.dataset.id; state.projectView = 'overview'; state.projectFilter = 'all'; render(); main.scrollTop = 0; break;
     case 'back-projects': state.projectId = null; state.tab = 'projects'; render(); main.scrollTop = 0; break;
+    case 'back-project-overview': state.projectView = 'overview'; state.projectFilter = 'all'; render(); main.scrollTop = 0; break;
+    case 'back-home': state.tab = 'projects'; render(); main.scrollTop = 0; break;
     case 'toggle-favorite': await toggleFavorite(); break;
-    case 'project-view': state.projectView = target.dataset.view; state.tagFilter = 'all'; render(); main.scrollTop = 0; break;
     case 'edit-project': openEditor('project', currentProject()); break;
+    case 'project-plus-menu':
+      if (window.confirm('Bug anlegen? Abbrechen für Idee.')) openEditor('bug');
+      else openEditor('idea');
+      break;
     case 'new-bug': openEditor('bug'); break;
     case 'new-idea': openEditor('idea'); break;
     case 'edit-bug': openEditor('bug', state.bugs.find((item) => item.id === target.dataset.id)); break;
     case 'edit-idea': openEditor('idea', state.ideas.find((item) => item.id === target.dataset.id)); break;
-    case 'project-filter': state.projectFilter = target.dataset.value; render(); break;
-    case 'bug-filter': state.bugFilter = target.dataset.value; render(); break;
-    case 'idea-filter': state.ideaFilter = target.dataset.value; render(); break;
-    case 'tag-filter': state.tagFilter = target.dataset.value; render(); break;
-    case 'open-activity': state.projectId = null; state.tab = 'activity'; render(); main.scrollTop = 0; break;
+    case 'open-project-bugs': state.projectView = 'bugs'; state.projectFilter = 'active'; render(); main.scrollTop = 0; break;
+    case 'open-project-ideas': state.projectView = 'ideas'; state.projectFilter = 'open'; render(); main.scrollTop = 0; break;
+    case 'open-project-references': state.projectView = 'references'; render(); main.scrollTop = 0; break;
+    case 'open-project-history': state.projectView = 'history'; render(); main.scrollTop = 0; break;
+    case 'set-subfilter': state.projectFilter = target.dataset.filter; render(); break;
+    case 'toggle-menu': state.menuOpen = !state.menuOpen; render(); break;
+    case 'open-library': state.tab = 'library'; render(); main.scrollTop = 0; break;
+    case 'open-archive': state.tab = 'archive'; render(); main.scrollTop = 0; break;
+    case 'open-settings': state.tab = 'settings'; render(); main.scrollTop = 0; break;
     case 'share-backup': await shareBackup(); break;
     case 'import-backup': importInput.click(); break;
-    case 'copy-url':
-      try { await navigator.clipboard.writeText(target.dataset.url); showToast('URL kopiert.'); }
-      catch { window.prompt('URL kopieren:', target.dataset.url); }
-      break;
     case 'load-demo': await loadDemo(); break;
     case 'clear-all': await clearAll(); break;
+    case 'clear-search': state.search = ''; render(); break;
+    case 'copy-url-project': await copyText(`${appBaseUrl()}?action=new-project`); showToast('URL kopiert.'); break;
+    case 'copy-url-bug': await copyText(`${appBaseUrl()}?action=new-bug&project=${encodeURIComponent(state.projects[0]?.id ?? 'PRJ-DEINE-ID')}`); showToast('URL kopiert.'); break;
+    case 'copy-url-idea': await copyText(`${appBaseUrl()}?action=new-idea&project=${encodeURIComponent(state.projects[0]?.id ?? 'PRJ-DEINE-ID')}`); showToast('URL kopiert.'); break;
   }
 }
 
@@ -1015,27 +1068,21 @@ function delegatedAction(event) {
 header.addEventListener('click', delegatedAction);
 main.addEventListener('click', delegatedAction);
 main.addEventListener('input', (event) => {
-  if (event.target.id !== 'project-search') return;
+  if (!['project-search', 'inbox-search', 'library-search'].includes(event.target.id)) return;
   state.search = event.target.value;
   const selection = [event.target.selectionStart, event.target.selectionEnd];
-  main.innerHTML = renderProjects();
-  const input = main.querySelector('#project-search');
+  render();
+  const input = main.querySelector(`#${event.target.id}`);
   input?.focus();
   input?.setSelectionRange(...selection);
-});
-main.addEventListener('change', (event) => {
-  const setting = event.target.dataset.setting;
-  if (!setting) return;
-  const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
-  repository.saveSettings({ [setting]: value })
-    .then((settings) => { state.settings = settings; render(); showToast('Einstellung gespeichert.'); })
-    .catch((error) => showToast(error.message, 4800));
 });
 nav.addEventListener('click', (event) => {
   const target = event.target.closest('[data-nav]');
   if (!target) return;
   state.tab = target.dataset.nav;
   state.projectId = null;
+  state.projectView = 'overview';
+  state.search = '';
   render();
   main.scrollTop = 0;
   main.focus({ preventScroll: true });
@@ -1073,7 +1120,7 @@ async function applyLaunchCommand() {
     if (!project) showToast('Das angegebene Projekt wurde nicht gefunden.', 4800);
     else if (command.type === 'open-project') {
       state.projectId = project.id;
-      state.projectView = command.view;
+      state.projectView = 'overview';
       render();
     } else {
       state.projectId = project.id;
@@ -1096,7 +1143,7 @@ async function bootstrap() {
     await repository.init();
     await repository.compactHistory();
     await refresh({ renderView: false });
-    state.tab = state.settings.startView;
+    state.tab = 'projects';
     render();
     await applyLaunchCommand();
     await registerServiceWorker();

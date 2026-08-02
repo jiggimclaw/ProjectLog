@@ -1,5 +1,5 @@
-import { buildBackup, validateBackup } from './domain.js?v=2.1.0';
-import { compactEvents, createEntityCreatedEvent, deriveEntityEvents } from './events.js?v=2.1.0';
+import { buildBackup, validateBackup } from './domain.js?v=3.1.0';
+import { compactEvents, createEntityCreatedEvent, deriveEntityEvents } from './events.js?v=3.1.0';
 
 const ENTITY_STORES = new Set(['projects', 'bugs', 'ideas']);
 const DATA_STORES = new Set(['projects', 'bugs', 'ideas', 'events', 'monthlySummaries']);
