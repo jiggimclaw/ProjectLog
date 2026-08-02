@@ -87,7 +87,7 @@ Apple-Lila bleibt ausschließlich die primäre Akzentfarbe für Navigation, Ausw
 
 Vor dem Update in ProjectLog unter **Einstellungen → Backup in Dateien sichern** ein JSON-Backup erstellen.
 
-Danach den vollständigen Inhalt des Update-Pakets in dasselbe Repository hochladen und bestehende Dateien ersetzen. ProjectLog 2.0 verwendet den Cache-Namen `projectlog-shell-v2-1-0` und versionsgebundene Modul-URLs, damit alte iOS-PWA-Dateien nicht weiterverwendet werden.
+Danach den vollständigen Inhalt des Update-Pakets in dasselbe Repository hochladen und bestehende Dateien ersetzen. ProjectLog 3.1 verwendet den Cache-Namen `projectlog-shell-v3-1-0` und versionsgebundene Modul-URLs, damit alte iOS-PWA-Dateien nicht weiterverwendet werden.
 
 Die bestehende lokale Datenbank wird beim ersten Start in das Schema 2 migriert. Projektbeschreibungen, Bugs und Ideen bleiben erhalten. Für neue Felder werden konservative Standardwerte vergeben.
 
@@ -163,3 +163,13 @@ Die automatisierten Tests prüfen Datenmigration, Speicherung, Backup, statische
 - iOS-Teilen-Menü für JSON-Backups
 - Offline-Neustart nach aktualisiertem Service Worker
 - Aufruf aus Apple Kurzbefehle
+
+
+## ProjectLog 3.1
+
+- schmalere und tiefer positionierte Zwei-Tab-Navigation
+- deutlicher aktive Auswahlfläche mit Apple-Lila Icon und Beschriftung
+- gefüllte aktive Navigationssymbole, reduzierte inaktive Symbole
+- kompaktere Projekt-, Eingangs- und Referenzzeilen
+- Projektbeschreibung vor den Inhaltsbereichen
+- ruhigere Typografie, Abstände und semantische Hervorhebungen
