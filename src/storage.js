@@ -1,14 +1,20 @@
-import { buildBackup, validateBackup } from './domain.js?v=3.1.0';
-import { compactEvents, createEntityCreatedEvent, deriveEntityEvents } from './events.js?v=3.1.0';
+import { buildBackup, validateBackup } from './domain.js?v=3.2.0';
+import { compactEvents, createEntityCreatedEvent, deriveEntityEvents } from './events.js?v=3.2.0';
+import { deserializeAttachment, serializeAttachment } from './materials.js?v=3.2.0';
 
 const ENTITY_STORES = new Set(['projects', 'bugs', 'ideas']);
-const DATA_STORES = new Set(['projects', 'bugs', 'ideas', 'events', 'monthlySummaries']);
-const ALL_STORES = ['projects', 'bugs', 'ideas', 'events', 'monthlySummaries', 'meta'];
+const MATERIAL_STORES = new Set(['inboxItems', 'references', 'attachments']);
+const DATA_STORES = new Set([
+  'projects', 'bugs', 'ideas', 'inboxItems', 'references', 'attachments', 'events', 'monthlySummaries',
+]);
+const ALL_STORES = [
+  'projects', 'bugs', 'ideas', 'inboxItems', 'references', 'attachments', 'events', 'monthlySummaries', 'meta',
+];
 const META_DEFAULTS = {
   bugSequence: 0,
   ideaSequence: 0,
-  schemaVersion: 2,
-  appSettings: { startView: 'dashboard', includeArchived: false },
+  schemaVersion: 3,
+  appSettings: { startView: 'projects', includeArchived: false },
 };
 
 function assertStore(store) {
@@ -27,8 +33,9 @@ function entityStore(kind) {
 }
 
 function normalizeSettings(value = {}) {
-  const startView = value.startView ?? 'dashboard';
-  if (!['dashboard', 'projects'].includes(startView)) throw new Error('Invalid start view');
+  const requested = value.startView ?? 'projects';
+  const startView = requested === 'dashboard' ? 'projects' : requested;
+  if (!['projects', 'inbox'].includes(startView)) throw new Error('Invalid start view');
   const includeArchived = value.includeArchived ?? false;
   if (typeof includeArchived !== 'boolean') throw new Error('includeArchived must be a boolean');
   return { startView, includeArchived };
@@ -70,6 +77,14 @@ export class MemoryProjectLogDriver {
     for (const event of events) this.stores.events.set(event.id, clone(event));
   }
 
+  async processInboxItem(inboxId, storeName, entity, events = [], reference = null) {
+    if (!this.stores.inboxItems.has(inboxId)) throw new Error('Inbox item not found');
+    this.stores.inboxItems.delete(inboxId);
+    this.stores[storeName].set(entity.id, clone(entity));
+    if (reference) this.stores.references.set(reference.id, clone(reference));
+    for (const event of events) this.stores.events.set(event.id, clone(event));
+  }
+
   async replaceHistory(events, summaries) {
     this.stores.events = new Map(events.map((item) => [item.id, clone(item)]));
     this.stores.monthlySummaries = new Map(summaries.map((item) => [item.id, clone(item)]));
@@ -77,15 +92,18 @@ export class MemoryProjectLogDriver {
 
   async replaceAll(data) {
     this.stores = {
-      projects: new Map(data.projects.map((item) => [item.id, clone(item)])),
-      bugs: new Map(data.bugs.map((item) => [item.id, clone(item)])),
-      ideas: new Map(data.ideas.map((item) => [item.id, clone(item)])),
+      projects: new Map((data.projects ?? []).map((item) => [item.id, clone(item)])),
+      bugs: new Map((data.bugs ?? []).map((item) => [item.id, clone(item)])),
+      ideas: new Map((data.ideas ?? []).map((item) => [item.id, clone(item)])),
+      inboxItems: new Map((data.inboxItems ?? []).map((item) => [item.id, clone(item)])),
+      references: new Map((data.references ?? []).map((item) => [item.id, clone(item)])),
+      attachments: new Map((data.attachments ?? []).map((item) => [item.id, clone(item)])),
       events: new Map((data.events ?? []).map((item) => [item.id, clone(item)])),
       monthlySummaries: new Map((data.monthlySummaries ?? []).map((item) => [item.id, clone(item)])),
       meta: new Map([
-        ['bugSequence', { key: 'bugSequence', value: data.meta.bugSequence }],
-        ['ideaSequence', { key: 'ideaSequence', value: data.meta.ideaSequence }],
-        ['schemaVersion', { key: 'schemaVersion', value: 2 }],
+        ['bugSequence', { key: 'bugSequence', value: data.meta?.bugSequence ?? 0 }],
+        ['ideaSequence', { key: 'ideaSequence', value: data.meta?.ideaSequence ?? 0 }],
+        ['schemaVersion', { key: 'schemaVersion', value: 3 }],
         ['appSettings', { key: 'appSettings', value: clone(data.settings ?? META_DEFAULTS.appSettings) }],
       ]),
     };
@@ -97,6 +115,12 @@ export class MemoryProjectLogDriver {
       for (const [id, entity] of this.stores[store]) {
         if (entity.projectId === projectId) this.stores[store].delete(id);
       }
+    }
+    for (const [id, reference] of this.stores.references) {
+      if (!reference.projectIds.includes(projectId)) continue;
+      const remaining = reference.projectIds.filter((idValue) => idValue !== projectId);
+      if (remaining.length === 0) this.stores.references.delete(id);
+      else this.stores.references.set(id, { ...clone(reference), projectIds: remaining });
     }
   }
 
@@ -125,7 +149,9 @@ function ensureStore(database, name, options, indexes = []) {
     ? null
     : database.createObjectStore(name, options);
   if (!store) return;
-  for (const [indexName, keyPath] of indexes) store.createIndex(indexName, keyPath, { unique: false });
+  for (const [indexName, keyPath, indexOptions = { unique: false }] of indexes) {
+    store.createIndex(indexName, keyPath, indexOptions);
+  }
 }
 
 export class IndexedDBProjectLogDriver {
@@ -138,12 +164,18 @@ export class IndexedDBProjectLogDriver {
 
   async open() {
     if (this.database) return;
-    const request = this.indexedDB.open(this.databaseName, 2);
+    const request = this.indexedDB.open(this.databaseName, 3);
     request.onupgradeneeded = () => {
       const database = request.result;
       ensureStore(database, 'projects', { keyPath: 'id' }, [['updatedAt', 'updatedAt']]);
       ensureStore(database, 'bugs', { keyPath: 'id' }, [['projectId', 'projectId'], ['updatedAt', 'updatedAt']]);
       ensureStore(database, 'ideas', { keyPath: 'id' }, [['projectId', 'projectId'], ['updatedAt', 'updatedAt']]);
+      ensureStore(database, 'inboxItems', { keyPath: 'id' }, [['type', 'type'], ['updatedAt', 'updatedAt'], ['attachmentId', 'attachmentId']]);
+      ensureStore(database, 'references', { keyPath: 'id' }, [
+        ['type', 'type'], ['updatedAt', 'updatedAt'], ['archived', 'archived'],
+        ['projectIds', 'projectIds', { unique: false, multiEntry: true }], ['attachmentId', 'attachmentId'],
+      ]);
+      ensureStore(database, 'attachments', { keyPath: 'id' }, [['createdAt', 'createdAt']]);
       ensureStore(database, 'events', { keyPath: 'id' }, [['projectId', 'projectId'], ['entityId', 'entityId'], ['timestamp', 'timestamp']]);
       ensureStore(database, 'monthlySummaries', { keyPath: 'id' }, [['projectId', 'projectId'], ['month', 'month']]);
       ensureStore(database, 'meta', { keyPath: 'key' });
@@ -194,6 +226,25 @@ export class IndexedDBProjectLogDriver {
     await transactionDone(transaction);
   }
 
+  async processInboxItem(inboxId, storeName, entity, events = [], reference = null) {
+    const storeNames = [...new Set(['inboxItems', storeName, ...(reference ? ['references'] : []), ...(events.length ? ['events'] : [])])];
+    const transaction = this.database.transaction(storeNames, 'readwrite');
+    const inboxStore = transaction.objectStore('inboxItems');
+    const source = await requestAsPromise(inboxStore.get(inboxId));
+    if (!source) {
+      transaction.abort();
+      throw new Error('Inbox item not found');
+    }
+    inboxStore.delete(inboxId);
+    transaction.objectStore(storeName).put(entity);
+    if (reference) transaction.objectStore('references').put(reference);
+    if (events.length) {
+      const eventStore = transaction.objectStore('events');
+      for (const event of events) eventStore.put(event);
+    }
+    await transactionDone(transaction);
+  }
+
   async replaceHistory(events, summaries) {
     const transaction = this.database.transaction(['events', 'monthlySummaries'], 'readwrite');
     const eventStore = transaction.objectStore('events');
@@ -208,26 +259,31 @@ export class IndexedDBProjectLogDriver {
   async replaceAll(data) {
     const transaction = this.database.transaction(ALL_STORES, 'readwrite');
     for (const storeName of ALL_STORES) transaction.objectStore(storeName).clear();
-    for (const project of data.projects) transaction.objectStore('projects').put(project);
-    for (const bug of data.bugs) transaction.objectStore('bugs').put(bug);
-    for (const idea of data.ideas) transaction.objectStore('ideas').put(idea);
-    for (const event of data.events ?? []) transaction.objectStore('events').put(event);
-    for (const summary of data.monthlySummaries ?? []) transaction.objectStore('monthlySummaries').put(summary);
-    transaction.objectStore('meta').put({ key: 'bugSequence', value: data.meta.bugSequence });
-    transaction.objectStore('meta').put({ key: 'ideaSequence', value: data.meta.ideaSequence });
-    transaction.objectStore('meta').put({ key: 'schemaVersion', value: 2 });
+    for (const storeName of ['projects', 'bugs', 'ideas', 'inboxItems', 'references', 'attachments', 'events', 'monthlySummaries']) {
+      for (const item of data[storeName] ?? []) transaction.objectStore(storeName).put(item);
+    }
+    transaction.objectStore('meta').put({ key: 'bugSequence', value: data.meta?.bugSequence ?? 0 });
+    transaction.objectStore('meta').put({ key: 'ideaSequence', value: data.meta?.ideaSequence ?? 0 });
+    transaction.objectStore('meta').put({ key: 'schemaVersion', value: 3 });
     transaction.objectStore('meta').put({ key: 'appSettings', value: data.settings ?? META_DEFAULTS.appSettings });
     await transactionDone(transaction);
   }
 
   async removeProjectCascade(projectId) {
-    const stores = ['projects', 'bugs', 'ideas', 'events', 'monthlySummaries'];
+    const stores = ['projects', 'bugs', 'ideas', 'events', 'monthlySummaries', 'references'];
     const transaction = this.database.transaction(stores, 'readwrite');
     transaction.objectStore('projects').delete(projectId);
     for (const storeName of ['bugs', 'ideas', 'events', 'monthlySummaries']) {
       const index = transaction.objectStore(storeName).index('projectId');
       const keys = await requestAsPromise(index.getAllKeys(projectId));
       for (const key of keys) transaction.objectStore(storeName).delete(key);
+    }
+    const referenceStore = transaction.objectStore('references');
+    const references = await requestAsPromise(referenceStore.index('projectIds').getAll(projectId));
+    for (const reference of references) {
+      const remaining = reference.projectIds.filter((id) => id !== projectId);
+      if (remaining.length === 0) referenceStore.delete(reference.id);
+      else referenceStore.put({ ...reference, projectIds: remaining });
     }
     await transactionDone(transaction);
   }
@@ -252,11 +308,11 @@ export class ProjectLogRepository {
     const projects = await this.driver.getAll('projects');
     const bugs = await this.driver.getAll('bugs');
     const ideas = await this.driver.getAll('ideas');
-    const requiresMigration = projects.some((item) => item.status == null || item.priority == null || item.favorite == null)
+    const requiresLegacyMigration = projects.some((item) => item.status == null || item.priority == null || item.favorite == null)
       || bugs.some((item) => item.severity == null || item.priority != null)
       || ideas.some((item) => item.value == null || item.tags == null);
 
-    if (requiresMigration) {
+    if (requiresLegacyMigration) {
       const bugMeta = await this.driver.get('meta', 'bugSequence');
       const ideaMeta = await this.driver.get('meta', 'ideaSequence');
       const migrated = validateBackup({
@@ -269,12 +325,14 @@ export class ProjectLogRepository {
           meta: { bugSequence: bugMeta?.value ?? 0, ideaSequence: ideaMeta?.value ?? 0 },
         },
       });
-      await this.driver.replaceAll(migrated.data);
+      await this.driver.replaceAll({ ...migrated.data, attachments: [] });
     } else {
       for (const [key, value] of Object.entries(META_DEFAULTS)) {
         if (!(await this.driver.get('meta', key))) await this.driver.put('meta', { key, value: clone(value) });
       }
-      if (schemaVersion?.value !== 2) await this.driver.put('meta', { key: 'schemaVersion', value: 2 });
+      if (schemaVersion?.value !== 3) await this.driver.put('meta', { key: 'schemaVersion', value: 3 });
+      const settings = await this.driver.get('meta', 'appSettings');
+      if (settings) await this.driver.put('meta', { key: 'appSettings', value: normalizeSettings(settings.value) });
     }
     return this;
   }
@@ -313,6 +371,60 @@ export class ProjectLogRepository {
 
   async deleteEntity(kind, id) {
     await this.driver.delete(entityStore(kind), id);
+  }
+
+  async saveInboxItem(item) {
+    await this.driver.put('inboxItems', item);
+    return item;
+  }
+
+  async saveReference(reference) {
+    await this.driver.put('references', reference);
+    return reference;
+  }
+
+  async saveAttachment(attachment) {
+    await this.driver.put('attachments', attachment);
+    return attachment;
+  }
+
+  async getAttachment(id) {
+    return this.driver.get('attachments', id);
+  }
+
+  async cleanupAttachment(attachmentId) {
+    if (!attachmentId) return;
+    const inUse = [...await this.driver.getAll('inboxItems'), ...await this.driver.getAll('references')]
+      .some((item) => item.attachmentId === attachmentId);
+    if (!inUse) await this.driver.delete('attachments', attachmentId);
+  }
+
+  async deleteInboxItem(id) {
+    const item = await this.driver.get('inboxItems', id);
+    await this.driver.delete('inboxItems', id);
+    await this.cleanupAttachment(item?.attachmentId);
+  }
+
+  async deleteReference(id) {
+    const reference = await this.driver.get('references', id);
+    await this.driver.delete('references', id);
+    await this.cleanupAttachment(reference?.attachmentId);
+  }
+
+  async processInboxItem({ inboxId, kind, entity, reference = null }) {
+    const source = await this.driver.get('inboxItems', inboxId);
+    if (!source) throw new Error('Inbox item not found');
+    const store = kind === 'reference' ? 'references' : entityStore(kind);
+    const events = kind === 'reference' ? [] : [createEntityCreatedEvent(kind, entity)];
+    if (reference && reference.attachmentId !== source.attachmentId) {
+      throw new Error('Companion reference must preserve the source attachment');
+    }
+    await this.driver.processInboxItem(inboxId, store, entity, events, reference);
+    return entity;
+  }
+
+  async setReferenceProjects(reference) {
+    return this.saveReference(reference);
   }
 
   async listEvents({ projectId, entityId, entityType } = {}) {
@@ -362,20 +474,27 @@ export class ProjectLogRepository {
   }
 
   async exportBackup() {
-    const [projects, bugs, ideas, events, monthlySummaries, settings, bugMeta, ideaMeta] = await Promise.all([
+    const [projects, bugs, ideas, inboxItems, references, attachments, events, monthlySummaries, settings, bugMeta, ideaMeta] = await Promise.all([
       this.list('projects'),
       this.list('bugs'),
       this.list('ideas'),
+      this.list('inboxItems'),
+      this.list('references'),
+      this.list('attachments'),
       this.driver.getAll('events'),
       this.driver.getAll('monthlySummaries'),
       this.getSettings(),
       this.driver.get('meta', 'bugSequence'),
       this.driver.get('meta', 'ideaSequence'),
     ]);
+    const serializedAttachments = await Promise.all(attachments.map(serializeAttachment));
     return buildBackup({
       projects,
       bugs,
       ideas,
+      inboxItems,
+      references,
+      attachments: serializedAttachments,
       events,
       monthlySummaries,
       settings,
@@ -389,7 +508,8 @@ export class ProjectLogRepository {
   async importBackup(value) {
     const validated = validateBackup(value);
     this.lastSafetyBackup = await this.exportBackup();
-    await this.driver.replaceAll(validated.data);
+    const attachments = await Promise.all(validated.data.attachments.map(deserializeAttachment));
+    await this.driver.replaceAll({ ...validated.data, attachments });
     return validated;
   }
 

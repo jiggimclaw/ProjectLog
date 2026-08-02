@@ -1,3 +1,5 @@
+import { validateMaterialBackupData } from './materials.js?v=3.2.0';
+
 export const TAG_VALUES = Object.freeze([
   'feature',
   'design',
@@ -13,7 +15,7 @@ export const BUG_STATUSES = Object.freeze(['new', 'review', 'active', 'resolved'
 export const BUG_SEVERITIES = Object.freeze(['minor', 'major', 'critical']);
 export const IDEA_STATUSES = Object.freeze(['new', 'reviewed', 'planned', 'implemented', 'rejected']);
 export const IDEA_VALUES = Object.freeze(['small', 'relevant', 'strategic']);
-export const START_VIEWS = Object.freeze(['dashboard', 'projects']);
+export const START_VIEWS = Object.freeze(['projects', 'inbox']);
 
 const PROJECT_STATUS_SET = new Set(PROJECT_STATUSES);
 const PROJECT_PRIORITY_SET = new Set(PROJECT_PRIORITIES);
@@ -208,7 +210,8 @@ export function updateEntity(kind, entity, changes, now = new Date().toISOString
 }
 
 function validateSettings(settings = {}) {
-  const startView = settings.startView ?? 'dashboard';
+  const requested = settings.startView ?? 'projects';
+  const startView = requested === 'dashboard' ? 'projects' : requested;
   if (!START_VIEW_SET.has(startView)) throw new Error('Invalid start view');
   const includeArchived = settings.includeArchived ?? false;
   return {
@@ -305,10 +308,10 @@ export function migrateBackupV1(value) {
     projectId: null,
     kind: 'migration',
     from: 'projectlog.backup.v1',
-    to: 'projectlog.backup.v2',
+    to: 'projectlog.backup.v3',
   };
   return validateBackup({
-    schema: 'projectlog.backup.v2',
+    schema: 'projectlog.backup.v3',
     exportedAt,
     data: {
       projects,
@@ -316,7 +319,10 @@ export function migrateBackupV1(value) {
       ideas,
       events: [migrationEvent],
       monthlySummaries: [],
-      settings: { startView: 'dashboard', includeArchived: false },
+      inboxItems: [],
+      references: [],
+      attachments: [],
+      settings: { startView: 'projects', includeArchived: false },
       meta: {
         bugSequence: Number(value.data?.meta?.bugSequence ?? 0),
         ideaSequence: Number(value.data?.meta?.ideaSequence ?? 0),
@@ -325,9 +331,27 @@ export function migrateBackupV1(value) {
   });
 }
 
+export function migrateBackupV2(value) {
+  if (!value || value.schema !== 'projectlog.backup.v2') throw new Error('Not a v2 backup');
+  return validateBackup({
+    schema: 'projectlog.backup.v3',
+    exportedAt: value.exportedAt,
+    data: {
+      ...(structuredClone(value.data ?? {})),
+      inboxItems: [],
+      references: [],
+      attachments: [],
+      settings: {
+        ...(value.data?.settings ?? {}),
+        startView: value.data?.settings?.startView === 'inbox' ? 'inbox' : 'projects',
+      },
+    },
+  });
+}
+
 export function buildBackup(data, exportedAt = new Date().toISOString()) {
   return validateBackup({
-    schema: 'projectlog.backup.v2',
+    schema: 'projectlog.backup.v3',
     exportedAt: assertIsoTimestamp(exportedAt, 'exportedAt'),
     data: structuredClone(data),
   });
@@ -336,7 +360,8 @@ export function buildBackup(data, exportedAt = new Date().toISOString()) {
 export function validateBackup(value) {
   if (!value || typeof value !== 'object') throw new Error('Backup must be an object');
   if (value.schema === 'projectlog.backup.v1') return migrateBackupV1(value);
-  if (value.schema !== 'projectlog.backup.v2') throw new Error('Unsupported backup schema');
+  if (value.schema === 'projectlog.backup.v2') return migrateBackupV2(value);
+  if (value.schema !== 'projectlog.backup.v3') throw new Error('Unsupported backup schema');
 
   const exportedAt = assertIsoTimestamp(value.exportedAt, 'exportedAt');
   const projects = (value.data?.projects ?? []).map(validateProject);
@@ -346,6 +371,7 @@ export function validateBackup(value) {
   const events = (value.data?.events ?? []).map(validateEvent);
   const monthlySummaries = (value.data?.monthlySummaries ?? []).map(validateMonthlySummary);
   const settings = validateSettings(value.data?.settings ?? {});
+  const materials = validateMaterialBackupData(value.data ?? {}, projectIds);
 
   for (const entity of [...bugs, ...ideas]) {
     if (!projectIds.has(entity.projectId)) {
@@ -376,7 +402,7 @@ export function validateBackup(value) {
   }
 
   return {
-    schema: 'projectlog.backup.v2',
+    schema: 'projectlog.backup.v3',
     exportedAt,
     data: {
       projects,
@@ -384,6 +410,7 @@ export function validateBackup(value) {
       ideas,
       events,
       monthlySummaries,
+      ...materials,
       settings,
       meta: { bugSequence, ideaSequence },
     },

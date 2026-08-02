@@ -1,657 +1,84 @@
-import { buildBackupFilename } from './backup.js?v=3.1.0';
+import { buildBackupFilename } from './backup.js?v=3.2.0';
+import { createBug, createIdea, createProject, updateEntity } from './domain.js?v=3.2.0';
+import { editorTitle, renderEditorFields, selectedTagsFromEditor } from './forms.js?v=3.2.0';
+import { icon } from './icons.js?v=3.2.0';
 import {
-  createBug,
-  createIdea,
-  createProject,
-  TAG_VALUES,
-  updateEntity,
-} from './domain.js?v=3.1.0';
-import { icon } from './icons.js?v=3.1.0';
+  createAttachment,
+  createInboxItem,
+  createReference,
+  updateMaterial,
+} from './materials.js?v=3.2.0';
 import {
-  bugSeverityMeta,
-  bugStatusMeta,
-  healthMeta,
-  ideaStatusMeta,
-  ideaValueMeta,
-  projectPriorityMeta,
-  projectStatusMeta,
-  tagMeta,
-} from './presentation.js?v=3.1.0';
-import { parseLaunchCommand } from './router.js?v=3.1.0';
-import { ProjectLogRepository } from './storage.js?v=3.1.0';
-import { calculateProjectHealth } from './analytics.js?v=3.1.0';
+  activeRootTab,
+  currentInboxForView,
+  currentProjectForView,
+  currentReferenceForView,
+  renderHeader,
+  renderMain,
+  tabBarVisible,
+} from './views.js?v=3.2.0';
 import {
-  escapeHtml,
-  formatDateTime,
-  formatRelative,
-  optionList,
-  plural,
-} from './view-helpers.js?v=3.1.0';
+  createNavigationState,
+  currentView,
+  popView,
+  pushView,
+  replaceView,
+  resetRootView,
+} from './navigation.js?v=3.2.0';
+import { parseLaunchCommand } from './router.js?v=3.2.0';
+import {
+  actionSheet,
+  composeSheet,
+  confirmSheet,
+  filterSheet,
+  projectPickerSheet,
+  tagPickerSheet,
+} from './sheets.js?v=3.2.0';
+import { ProjectLogRepository } from './storage.js?v=3.2.0';
+import { escapeHtml } from './view-helpers.js?v=3.2.0';
 
-export const APP_VERSION = '3.1.0';
+export const APP_VERSION = '3.2.0';
 
 const repository = new ProjectLogRepository();
-const EXTRA_STORAGE_KEY = 'projectlog.extras.v3';
+const LEGACY_EXTRAS_KEY = 'projectlog.extras.v3';
 
 const state = {
-  tab: 'projects',
-  projectId: null,
-  projectView: 'overview',
-  search: '',
-  menuOpen: false,
-  projectFilter: 'all',
+  navigation: createNavigationState('projects'),
   projects: [],
   bugs: [],
   ideas: [],
+  inboxItems: [],
+  references: [],
+  attachments: [],
   events: [],
   monthlySummaries: [],
   settings: { startView: 'projects', includeArchived: false },
-  inbox: [],
-  references: [],
+  search: { projects: '', inbox: '', library: '' },
+  filters: { bugs: 'open', ideas: 'open', library: 'all' },
+  attachmentUrls: new Map(),
   editor: null,
+  sheet: null,
+  pendingImport: null,
+  baseUrl: '',
 };
 
+const appShell = document.querySelector('#app-shell');
 const header = document.querySelector('#app-header');
 const main = document.querySelector('#app-main');
-const nav = document.querySelector('.tab-bar');
+const nav = document.querySelector('#tab-bar');
 const editorDialog = document.querySelector('#editor-dialog');
 const editorForm = document.querySelector('#editor-form');
-const editorTitle = document.querySelector('#editor-title');
+const editorTitleElement = document.querySelector('#editor-title');
 const editorFields = document.querySelector('#editor-fields');
 const editorError = document.querySelector('#editor-error');
 const editorDeleteSlot = document.querySelector('#editor-delete-slot');
+const actionDialog = document.querySelector('#action-dialog');
+const actionSheetContent = document.querySelector('#action-sheet-content');
+const imageInput = document.querySelector('#image-file');
+const attachmentInput = document.querySelector('#attachment-file');
 const importInput = document.querySelector('#import-file');
 const toast = document.querySelector('#toast');
 const statusBarMeta = document.querySelector('#status-bar-style');
-
-const navMeta = {
-  projects: { label: 'Projekte', icon: 'folder' },
-  inbox: { label: 'Eingang', icon: 'tray' },
-  library: { label: 'Bibliothek', icon: 'document' },
-  archive: { label: 'Archiv', icon: 'archive' },
-  settings: { label: 'Einstellungen', icon: 'gear' },
-};
-
-for (const button of nav.querySelectorAll('[data-nav]')) {
-  const meta = navMeta[button.dataset.nav];
-  const slot = button.querySelector('.tab-icon');
-  if (slot && meta) slot.innerHTML = icon(meta.icon);
-}
-
-function syncStatusBarStyle() {
-  if (!statusBarMeta) return;
-  statusBarMeta.content = window.matchMedia('(prefers-color-scheme: dark)').matches
-    ? 'black-translucent'
-    : 'default';
-}
-
-function showToast(message, timeout = 2800) {
-  toast.textContent = message;
-  toast.classList.add('is-visible');
-  window.clearTimeout(showToast.timer);
-  showToast.timer = window.setTimeout(() => toast.classList.remove('is-visible'), timeout);
-}
-
-function loadExtras() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(EXTRA_STORAGE_KEY) ?? '{}');
-    return {
-      inbox: Array.isArray(parsed.inbox) ? parsed.inbox : [],
-      references: Array.isArray(parsed.references) ? parsed.references : [],
-    };
-  } catch {
-    return { inbox: [], references: [] };
-  }
-}
-
-function saveExtras() {
-  localStorage.setItem(EXTRA_STORAGE_KEY, JSON.stringify({ inbox: state.inbox, references: state.references }));
-}
-
-function nextExtraId(prefix) {
-  const raw = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
-  return `${prefix}-${raw.replaceAll('-', '').slice(0, 8).toUpperCase()}`;
-}
-
-function currentProject() {
-  return state.projects.find((project) => project.id === state.projectId) ?? null;
-}
-
-function projectBugs(projectId) {
-  return state.bugs.filter((bug) => bug.projectId === projectId);
-}
-
-function projectIdeas(projectId) {
-  return state.ideas.filter((idea) => idea.projectId === projectId);
-}
-
-function projectReferences(projectId) {
-  return state.references.filter((reference) => reference.projectIds.includes(projectId));
-}
-
-function lastProjectActivity(project) {
-  return [
-    project.updatedAt,
-    ...projectBugs(project.id).map((item) => item.updatedAt),
-    ...projectIdeas(project.id).map((item) => item.updatedAt),
-    ...projectReferences(project.id).map((item) => item.updatedAt),
-  ].sort().at(-1) ?? project.updatedAt;
-}
-
-
-function safeHost(url) {
-  if (!url) return '';
-  try { return new URL(url).hostname.replace(/^www\./, ''); }
-  catch { return url; }
-}
-
-function currentTopLevelTab() {
-  return state.projectId ? 'projects' : ['projects', 'inbox'].includes(state.tab) ? state.tab : 'projects';
-}
-
-function setNavigationState() {
-  const activeTab = currentTopLevelTab();
-  for (const button of nav.querySelectorAll('[data-nav]')) {
-    const active = button.dataset.nav === activeTab;
-    button.classList.toggle('is-active', active);
-    const iconName = button.dataset.nav === 'projects'
-      ? (active ? 'folder-filled' : 'folder')
-      : (active ? 'tray-filled' : 'tray');
-    const slot = button.querySelector('.tab-icon');
-    if (slot) slot.innerHTML = icon(iconName);
-    if (active) button.setAttribute('aria-current', 'page');
-    else button.removeAttribute('aria-current');
-  }
-}
-
-function menuMarkup() {
-  if (!state.menuOpen) return '';
-  return `
-    <div class="header-menu" role="menu" aria-label="Mehr Optionen">
-      <button type="button" role="menuitem" data-action="open-library">${icon('document')}<span>Bibliothek</span></button>
-      <button type="button" role="menuitem" data-action="open-archive">${icon('archive')}<span>Archiv</span></button>
-      <button type="button" role="menuitem" data-action="share-backup">${icon('export')}<span>Backup exportieren</span></button>
-      <button type="button" role="menuitem" data-action="import-backup">${icon('import')}<span>Backup importieren</span></button>
-      <button type="button" role="menuitem" data-action="open-settings">${icon('gear')}<span>Einstellungen</span></button>
-    </div>`;
-}
-
-function headerButton(action, iconName, label, extraClass = '') {
-  return `<button class="toolbar-button ${extraClass}" type="button" data-action="${escapeHtml(action)}" aria-label="${escapeHtml(label)}">${icon(iconName)}</button>`;
-}
-
-function renderHeader() {
-  const project = currentProject();
-  if (project) {
-    const title = state.projectView === 'overview'
-      ? project.name
-      : state.projectView === 'bugs'
-        ? 'Bugs'
-        : state.projectView === 'ideas'
-          ? 'Ideen'
-          : state.projectView === 'references'
-            ? 'Referenzen'
-            : 'Verlauf';
-    const kicker = state.projectView === 'overview' ? project.id : project.name;
-    const backAction = state.projectView === 'overview' ? 'back-projects' : 'back-project-overview';
-    const backLabel = state.projectView === 'overview' ? 'Zurück zu Projekte' : 'Zurück zur Projektübersicht';
-    header.innerHTML = `
-      <div class="header-row project-header-row">
-        ${headerButton(backAction, 'back', backLabel)}
-        <div class="header-title-group">
-          <p class="header-kicker">${escapeHtml(kicker)}</p>
-          <h1>${escapeHtml(title)}</h1>
-        </div>
-        <div class="toolbar-actions">
-          ${state.projectView === 'overview' ? headerButton('toggle-favorite', project.favorite ? 'pin-filled' : 'pin', 'Favorit umschalten', project.favorite ? 'is-selected' : '') : '<span class="toolbar-spacer"></span>'}
-          ${state.projectView === 'overview' ? headerButton('edit-project', 'edit', 'Projekt bearbeiten') : headerButton('project-plus-menu', 'plus', 'Neuen Eintrag anlegen')}
-        </div>
-      </div>`;
-    return;
-  }
-
-  const meta = navMeta[state.tab] ?? navMeta.projects;
-  const backToProjects = ['library', 'archive', 'settings'].includes(state.tab);
-  const leading = backToProjects
-    ? headerButton('back-home', 'back', 'Zurück')
-    : '';
-  const primaryAction = state.tab === 'projects'
-    ? headerButton('new-project', 'plus', 'Neues Projekt', 'primary')
-    : state.tab === 'inbox'
-      ? headerButton('new-inbox', 'plus', 'Neuer Eingangseintrag', 'primary')
-      : '<span class="toolbar-spacer"></span>';
-  const topLevelTitle = state.tab === 'projects' ? 'ProjectLog' : meta.label;
-  header.innerHTML = `
-    <div class="header-row ${state.menuOpen ? 'is-menu-open' : ''}">
-      ${leading}
-      <div class="header-title-group">
-        <h1>${escapeHtml(topLevelTitle)}</h1>
-      </div>
-      <div class="toolbar-actions">${backToProjects ? '' : primaryAction}${headerButton('toggle-menu', 'ellipsis', 'Menü')}</div>
-      ${menuMarkup()}
-    </div>`;
-}
-
-function renderEmpty({ iconName, title, copy, action = '', actionLabel = '' }) {
-  return `
-    <section class="empty-state">
-      <div class="empty-symbol">${icon(iconName)}</div>
-      <h2>${escapeHtml(title)}</h2>
-      <p>${escapeHtml(copy)}</p>
-      ${action ? `<button class="primary-action" type="button" data-action="${escapeHtml(action)}">${escapeHtml(actionLabel)}</button>` : ''}
-    </section>`;
-}
-
-function badge(label, className = '', iconName = '') {
-  return `<span class="badge ${escapeHtml(className)}">${iconName ? icon(iconName, 'badge-icon') : ''}<span>${escapeHtml(label)}</span></span>`;
-}
-
-function renderTags(tags = []) {
-  if (!tags.length) return '';
-  const visible = tags.slice(0, 2);
-  const hidden = tags.length - visible.length;
-  return `<span class="tag-row">${visible.map((tag) => `<span class="tag-chip">${escapeHtml(tagMeta[tag]?.label ?? tag)}</span>`).join('')}${hidden > 0 ? `<span class="tag-chip is-muted">+${hidden}</span>` : ''}</span>`;
-}
-
-function healthBadge(project) {
-  const health = calculateProjectHealth(project, projectBugs(project.id), projectIdeas(project.id));
-  const meta = healthMeta[health.level];
-  return `${badge(meta.label, `health-badge ${meta.className}`, meta.icon)}<span class="health-reason">${escapeHtml(health.reason)}</span>`;
-}
-
-function importantProjectMeta(project) {
-  const bugs = projectBugs(project.id).filter((bug) => !['resolved', 'rejected'].includes(bug.status));
-  const critical = bugs.filter((bug) => bug.severity === 'critical').length;
-  const major = bugs.filter((bug) => bug.severity === 'major').length;
-  if (critical) return { text: `${critical} kritischer ${critical === 1 ? 'Bug' : 'Bugs'} · ${formatRelative(lastProjectActivity(project))}`, tone: 'critical' };
-  if (major) return { text: `${major} wesentliche ${major === 1 ? 'Bug' : 'Bugs'} · ${formatRelative(lastProjectActivity(project))}`, tone: 'major' };
-  if (project.status === 'planned') return { text: `${projectStatusMeta[project.status].label} · ${projectPriorityMeta[project.priority].label}`, tone: 'planned' };
-  return { text: `${projectStatusMeta[project.status].label} · zuletzt ${formatRelative(lastProjectActivity(project))}`, tone: 'neutral' };
-}
-
-function projectRow(project) {
-  const priority = project.priority;
-  const meta = importantProjectMeta(project);
-  return `
-    <button class="project-row priority-rail ${projectPriorityMeta[priority].className}" type="button" data-action="open-project" data-id="${escapeHtml(project.id)}">
-      <span class="project-row-main">
-        <span class="project-row-title-line">
-          <strong>${escapeHtml(project.name)}</strong>
-          ${project.favorite ? `<span class="favorite-mark" aria-label="Favorit">${icon('pin-filled')}</span>` : ''}
-        </span>
-        <span class="project-row-meta ${escapeHtml(meta.tone)}">${escapeHtml(meta.text)}</span>
-      </span>
-      <span class="chevron">${icon('chevron')}</span>
-    </button>`;
-}
-
-function sectionBlock(title, items, emptyCopy) {
-  if (!items.length) return '';
-  return `
-    <section class="list-section">
-      <div class="section-heading-row"><h2>${escapeHtml(title)}</h2></div>
-      <div class="project-row-list">${items.map(projectRow).join('')}</div>
-    </section>`;
-}
-
-function searchField(id, placeholder, value) {
-  return `
-    <label class="search-field" for="${escapeHtml(id)}">
-      ${icon('search')}
-      <input id="${escapeHtml(id)}" type="search" autocomplete="off" spellcheck="false" placeholder="${escapeHtml(placeholder)}" value="${escapeHtml(value)}">
-    </label>`;
-}
-
-function matchesProjectSearch(project, query) {
-  if (!query) return true;
-  const related = [
-    ...projectBugs(project.id).flatMap((bug) => [bug.id, bug.title, bug.description, ...bug.tags]),
-    ...projectIdeas(project.id).flatMap((idea) => [idea.id, idea.title, idea.description, ...idea.tags]),
-    ...projectReferences(project.id).flatMap((reference) => [reference.id, reference.title, reference.description ?? '', reference.url ?? '', ...(reference.tags ?? [])]),
-  ];
-  return [project.id, project.name, project.description, ...related].join(' ').toLocaleLowerCase('de-DE').includes(query);
-}
-
-function renderProjects() {
-  if (!state.projects.length) {
-    return renderEmpty({
-      iconName: 'folder',
-      title: 'ProjectLog ist bereit',
-      copy: 'Lege dein erstes Projekt an. Danach bündelt die Ansicht Favoriten, aktive Projekte und relevante Problemstellen automatisch.',
-      action: 'new-project',
-      actionLabel: 'Projekt anlegen',
-    });
-  }
-
-  const query = state.search.trim().toLocaleLowerCase('de-DE');
-  const projects = [...state.projects]
-    .filter((project) => (state.settings.includeArchived || project.status !== 'archived'))
-    .filter((project) => matchesProjectSearch(project, query))
-    .sort((a, b) => lastProjectActivity(b).localeCompare(lastProjectActivity(a)));
-
-  const favorites = projects.filter((project) => project.favorite && project.status !== 'archived');
-  const attention = projects.filter((project) => !project.favorite && importantProjectMeta(project).tone !== 'neutral' && project.status !== 'archived' && project.status !== 'planned');
-  const active = projects.filter((project) => !project.favorite && !attention.includes(project) && ['active', 'paused', 'completed'].includes(project.status));
-  const planned = projects.filter((project) => project.status === 'planned');
-
-  const sections = [
-    sectionBlock('Favoriten', favorites),
-    sectionBlock('Benötigt Aufmerksamkeit', attention),
-    sectionBlock('Aktiv', active),
-    sectionBlock('Geplant', planned),
-  ].filter(Boolean).join('');
-
-  return `
-    ${searchField('project-search', 'Projekte durchsuchen', state.search)}
-    ${sections || '<p class="section-empty">Keine passenden Projekte gefunden.</p>'}`;
-}
-
-function inboxItemRow(item) {
-  const typeLabel = item.type === 'link' ? 'Link' : item.type === 'file' ? 'Datei' : item.type === 'image' ? 'Bild' : 'Notiz';
-  const detail = item.type === 'link' && item.url ? safeHost(item.url) : (item.description || '').slice(0, 76);
-  return `
-    <article class="inbox-row">
-      <div class="inbox-row-icon ${escapeHtml(item.type)}">${icon(item.type === 'link' ? 'tag' : item.type === 'file' ? 'document' : item.type === 'image' ? 'square-grid' : 'document')}</div>
-      <div class="inbox-row-main">
-        <strong>${escapeHtml(item.title)}</strong>
-        ${detail ? `<p>${escapeHtml(detail)}</p>` : ''}
-        <span class="inbox-meta">${escapeHtml(typeLabel)} · ${escapeHtml(formatDateTime(item.createdAt))}</span>
-      </div>
-    </article>`;
-}
-
-function renderInbox() {
-  const query = state.search.trim().toLocaleLowerCase('de-DE');
-  const items = [...state.inbox]
-    .filter((item) => !query || [item.title, item.description ?? '', item.url ?? ''].join(' ').toLocaleLowerCase('de-DE').includes(query))
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-
-  if (!items.length) {
-    return `
-      ${searchField('inbox-search', 'Eingang durchsuchen', state.search)}
-      ${renderEmpty({
-        iconName: 'archive',
-        title: 'Der Eingang ist leer',
-        copy: 'Hier landen rohe Notizen, Links und Referenzen, bevor sie einem Projekt zugeordnet werden.',
-        action: 'new-inbox',
-        actionLabel: 'Schnelle Notiz anlegen',
-      })}`;
-  }
-
-  return `
-    ${searchField('inbox-search', 'Eingang durchsuchen', state.search)}
-    <section class="list-section">
-      <div class="project-row-list inbox-list">${items.map(inboxItemRow).join('')}</div>
-    </section>`;
-}
-
-function projectContentRow(label, count, action) {
-  return `<button class="content-row" type="button" data-action="${escapeHtml(action)}"><span>${escapeHtml(label)}</span><span class="content-row-end"><strong>${escapeHtml(String(count))}</strong>${icon('chevron')}</span></button>`;
-}
-
-function projectAlert(project) {
-  const criticalBugs = projectBugs(project.id).filter((bug) => !['resolved', 'rejected'].includes(bug.status) && bug.severity === 'critical');
-  if (!criticalBugs.length) return '';
-  return `<article class="alert-panel critical">${icon('warning')}<div><strong>Kritischer Bug benötigt Aufmerksamkeit.</strong><p>${escapeHtml(criticalBugs[0].title)}</p></div></article>`;
-}
-
-function renderRecentProjectEntries(projectId) {
-  const entries = [...projectBugs(projectId), ...projectIdeas(projectId)]
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-    .slice(0, 4);
-  if (!entries.length) return '<p class="section-empty">Noch keine Bugs oder Ideen.</p>';
-  return `<div class="entry-list compact-entries">${entries.map((entry) => {
-    const isBug = entry.id.startsWith('BUG-');
-    return `
-      <button class="entry-card" type="button" data-action="${isBug ? 'edit-bug' : 'edit-idea'}" data-id="${escapeHtml(entry.id)}">
-        <span class="entry-icon ${isBug ? 'bug-icon' : 'idea-icon'}">${icon(isBug ? 'bug' : 'bulb')}</span>
-        <span class="entry-body"><strong>${escapeHtml(entry.title)}</strong><span class="entry-meta">${escapeHtml(entry.id)} · ${escapeHtml(formatRelative(entry.updatedAt))}</span></span>
-        <span class="chevron">${icon('chevron')}</span>
-      </button>`;
-  }).join('')}</div>`;
-}
-
-function renderProjectOverview(project) {
-  const bugs = projectBugs(project.id);
-  const ideas = projectIdeas(project.id);
-  const references = projectReferences(project.id);
-  const health = calculateProjectHealth(project, bugs, ideas);
-  const healthInfo = healthMeta[health.level];
-  return `
-    ${projectAlert(project)}
-    <section class="project-summary-panel priority-rail ${projectPriorityMeta[project.priority].className}">
-      <div class="project-summary-top">
-        <div class="project-summary-badges">
-          ${badge(projectStatusMeta[project.status].label, 'project-status-badge', projectStatusMeta[project.status].icon)}
-          ${badge(projectPriorityMeta[project.priority].label, 'project-priority-badge')}
-        </div>
-        <span class="project-favorite-label">${project.favorite ? `${icon('pin-filled')} Favorit` : ''}</span>
-      </div>
-      <div class="health-panel ${escapeHtml(healthInfo.className)}">${healthBadge(project)}</div>
-    </section>
-
-    <section class="content-section project-description-section">
-      <div class="section-heading-row"><h2>Beschreibung</h2></div>
-      <p class="project-description-copy">${project.description ? escapeHtml(project.description) : 'Noch keine Projektbeschreibung.'}</p>
-    </section>
-
-    <section class="content-section">
-      <div class="section-heading-row"><h2>Inhalte</h2></div>
-      <div class="content-link-list">
-        ${projectContentRow('Bugs', bugs.length, 'open-project-bugs')}
-        ${projectContentRow('Ideen', ideas.length, 'open-project-ideas')}
-        ${projectContentRow('Referenzen', references.length, 'open-project-references')}
-        ${projectContentRow('Verlauf', state.events.filter((event) => event.projectId === project.id).length, 'open-project-history')}
-      </div>
-    </section>
-
-    <section class="content-section">
-      <div class="section-heading-row"><h2>Zuletzt geändert</h2><span>${escapeHtml(formatRelative(lastProjectActivity(project)))}</span></div>
-      ${renderRecentProjectEntries(project.id)}
-    </section>`;
-}
-
-function renderTagFilters() {
-  return `<div class="tag-filter-row" aria-label="Tags filtern">
-    <button class="filter-chip ${state.search === '' ? 'is-active' : ''}" type="button" data-action="clear-search">Alle</button>
-    ${TAG_VALUES.map((tag) => `<span class="filter-chip is-static">${escapeHtml(tagMeta[tag].label)}</span>`).join('')}
-  </div>`;
-}
-
-function renderBugRows(items) {
-  if (!items.length) return '<p class="section-empty">Keine passenden Bugs.</p>';
-  return `<div class="entry-list">${items.map((bug) => `
-      <button class="entry-card" type="button" data-action="edit-bug" data-id="${escapeHtml(bug.id)}">
-        <span class="entry-icon bug-icon">${icon(bugSeverityMeta[bug.severity].icon)}</span>
-        <span class="entry-body">
-          <strong>${escapeHtml(bug.title)}</strong>
-          <span class="entry-meta">${escapeHtml(bugStatusMeta[bug.status].label)} · ${escapeHtml(bugSeverityMeta[bug.severity].label)} · ${escapeHtml(formatRelative(bug.updatedAt))}</span>
-          ${renderTags(bug.tags)}
-        </span>
-        <span class="chevron">${icon('chevron')}</span>
-      </button>`).join('')}</div>`;
-}
-
-function renderIdeaRows(items) {
-  if (!items.length) return '<p class="section-empty">Keine passenden Ideen.</p>';
-  return `<div class="entry-list">${items.map((idea) => `
-      <button class="entry-card" type="button" data-action="edit-idea" data-id="${escapeHtml(idea.id)}">
-        <span class="entry-icon idea-icon">${icon(ideaValueMeta[idea.value].icon)}</span>
-        <span class="entry-body">
-          <strong>${escapeHtml(idea.title)}</strong>
-          <span class="entry-meta">${escapeHtml(ideaStatusMeta[idea.status].label)} · ${escapeHtml(ideaValueMeta[idea.value].label)} · ${escapeHtml(formatRelative(idea.updatedAt))}</span>
-          ${renderTags(idea.tags)}
-        </span>
-        <span class="chevron">${icon('chevron')}</span>
-      </button>`).join('')}</div>`;
-}
-
-function filterByTag(items) {
-  return items;
-}
-
-function renderProjectBugs(project) {
-  let items = projectBugs(project.id);
-  if (state.projectFilter === 'active') items = items.filter((bug) => !['resolved', 'rejected'].includes(bug.status));
-  if (state.projectFilter === 'critical') items = items.filter((bug) => bug.severity === 'critical' && !['resolved', 'rejected'].includes(bug.status));
-  if (state.projectFilter === 'resolved') items = items.filter((bug) => bug.status === 'resolved');
-  items = filterByTag(items).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  return `
-    <div class="content-toolbar">
-      <div class="filter-row">
-        <button class="filter-chip ${state.projectFilter === 'active' ? 'is-active' : ''}" type="button" data-action="set-subfilter" data-filter="active">Offen</button>
-        <button class="filter-chip ${state.projectFilter === 'critical' ? 'is-active' : ''}" type="button" data-action="set-subfilter" data-filter="critical">Kritisch</button>
-        <button class="filter-chip ${state.projectFilter === 'resolved' ? 'is-active' : ''}" type="button" data-action="set-subfilter" data-filter="resolved">Behoben</button>
-        <button class="filter-chip ${state.projectFilter === 'all' ? 'is-active' : ''}" type="button" data-action="set-subfilter" data-filter="all">Alle</button>
-      </div>
-      <button class="circle-action" type="button" data-action="new-bug" aria-label="Neuer Bug">${icon('plus')}</button>
-    </div>
-    ${renderBugRows(items)}`;
-}
-
-function renderProjectIdeas(project) {
-  let items = projectIdeas(project.id);
-  if (state.projectFilter === 'open') items = items.filter((idea) => !['implemented', 'rejected'].includes(idea.status));
-  if (state.projectFilter === 'strategic') items = items.filter((idea) => idea.value === 'strategic');
-  if (state.projectFilter === 'implemented') items = items.filter((idea) => idea.status === 'implemented');
-  items = filterByTag(items).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  return `
-    <div class="content-toolbar">
-      <div class="filter-row">
-        <button class="filter-chip ${state.projectFilter === 'open' ? 'is-active' : ''}" type="button" data-action="set-subfilter" data-filter="open">Offen</button>
-        <button class="filter-chip ${state.projectFilter === 'strategic' ? 'is-active' : ''}" type="button" data-action="set-subfilter" data-filter="strategic">Strategisch</button>
-        <button class="filter-chip ${state.projectFilter === 'implemented' ? 'is-active' : ''}" type="button" data-action="set-subfilter" data-filter="implemented">Umgesetzt</button>
-        <button class="filter-chip ${state.projectFilter === 'all' ? 'is-active' : ''}" type="button" data-action="set-subfilter" data-filter="all">Alle</button>
-      </div>
-      <button class="circle-action" type="button" data-action="new-idea" aria-label="Neue Idee">${icon('plus')}</button>
-    </div>
-    ${renderIdeaRows(items)}`;
-}
-
-function referenceRow(reference) {
-  const detail = reference.type === 'link' && reference.url ? safeHost(reference.url) : (reference.description || '');
-  return `
-    <article class="reference-row">
-      <div class="reference-icon">${icon(reference.type === 'link' ? 'tag' : 'document')}</div>
-      <div class="reference-main">
-        <strong>${escapeHtml(reference.title)}</strong>
-        ${detail ? `<p>${escapeHtml(detail)}</p>` : ''}
-        <div class="reference-meta-row">
-          <span>${escapeHtml(reference.type === 'link' ? 'Link' : 'Referenz')} · ${escapeHtml(formatRelative(reference.updatedAt))}</span>
-          ${renderTags(reference.tags ?? [])}
-        </div>
-      </div>
-    </article>`;
-}
-
-function renderProjectReferences(project) {
-  const items = projectReferences(project.id).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  return items.length
-    ? `<section class="list-section"><div class="project-row-list">${items.map(referenceRow).join('')}</div></section>`
-    : '<p class="section-empty">Noch keine Referenzen zugeordnet.</p>';
-}
-
-function entityTitle(event) {
-  if (event.entityType === 'project') return state.projects.find((item) => item.id === event.entityId)?.name ?? event.entityId;
-  if (event.entityType === 'bug') return state.bugs.find((item) => item.id === event.entityId)?.title ?? event.entityId;
-  if (event.entityType === 'idea') return state.ideas.find((item) => item.id === event.entityId)?.title ?? event.entityId;
-  return 'ProjectLog';
-}
-
-function projectName(projectId) {
-  return state.projects.find((project) => project.id === projectId)?.name ?? 'Unbekanntes Projekt';
-}
-
-function metaLabel(kind, value) {
-  if (value === undefined || value === null) return '';
-  const maps = {
-    projectStatus: projectStatusMeta,
-    projectPriority: projectPriorityMeta,
-    bugStatus: bugStatusMeta,
-    severity: bugSeverityMeta,
-    ideaStatus: ideaStatusMeta,
-    value: ideaValueMeta,
-    tag: tagMeta,
-  };
-  return maps[kind]?.[value]?.label ?? String(value);
-}
-
-function eventDescription(event) {
-  if (event.kind === 'created') return 'wurde erstellt';
-  if (event.kind === 'favorite') return event.to ? 'wurde angeheftet' : 'wurde von Favoriten entfernt';
-  if (event.kind === 'tag_added') return `Tag „${metaLabel('tag', event.to)}“ hinzugefügt`;
-  if (event.kind === 'tag_removed') return `Tag „${metaLabel('tag', event.from)}“ entfernt`;
-  if (event.kind === 'status') {
-    const group = event.entityType === 'bug' ? 'bugStatus' : event.entityType === 'idea' ? 'ideaStatus' : 'projectStatus';
-    return `Status: ${metaLabel(group, event.from)} → ${metaLabel(group, event.to)}`;
-  }
-  if (event.kind === 'severity') return `Schweregrad: ${metaLabel('severity', event.from)} → ${metaLabel('severity', event.to)}`;
-  if (event.kind === 'value') return `Nutzen: ${metaLabel('value', event.from)} → ${metaLabel('value', event.to)}`;
-  if (event.kind === 'priority') return `Priorität: ${metaLabel('projectPriority', event.from)} → ${metaLabel('projectPriority', event.to)}`;
-  if (event.kind === 'migration') return 'wurde auf das aktuelle Datenmodell migriert';
-  return 'wurde geändert';
-}
-
-function renderEventItem(event) {
-  return `
-    <li class="activity-item">
-      <time datetime="${escapeHtml(event.timestamp)}">${escapeHtml(formatDateTime(event.timestamp))}</time>
-      <div>
-        <strong>${escapeHtml(entityTitle(event))}</strong>
-        <p>${escapeHtml(eventDescription(event))}</p>
-        <span>${escapeHtml(projectName(event.projectId))} · ${escapeHtml(event.entityId)}</span>
-      </div>
-    </li>`;
-}
-
-function renderProjectHistory(project) {
-  const events = state.events
-    .filter((event) => event.projectId === project.id)
-    .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-  return events.length
-    ? `<ol class="activity-list">${events.map(renderEventItem).join('')}</ol>`
-    : '<p class="section-empty">Noch keine protokollierten Änderungen.</p>';
-}
-
-function renderProject() {
-  const project = currentProject();
-  if (!project) {
-    state.projectId = null;
-    return renderProjects();
-  }
-  if (state.projectView === 'bugs') return renderProjectBugs(project);
-  if (state.projectView === 'ideas') return renderProjectIdeas(project);
-  if (state.projectView === 'references') return renderProjectReferences(project);
-  if (state.projectView === 'history') return renderProjectHistory(project);
-  return renderProjectOverview(project);
-}
-
-function renderLibrary() {
-  const query = state.search.trim().toLocaleLowerCase('de-DE');
-  const references = [...state.references]
-    .filter((item) => !query || [item.title, item.description ?? '', item.url ?? '', ...(item.tags ?? [])].join(' ').toLocaleLowerCase('de-DE').includes(query))
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-
-  return `
-    ${searchField('library-search', 'Suche in Bibliothek', state.search)}
-    <div class="tag-filter-row library-filter-row">
-      <span class="filter-chip is-active">Alle</span>
-      <span class="filter-chip is-static">Links</span>
-      <span class="filter-chip is-static">Bilder</span>
-      <span class="filter-chip is-static">Dateien</span>
-      <span class="filter-chip is-static">Notizen</span>
-    </div>
-    ${references.length
-      ? `<section class="list-section"><div class="project-row-list reference-list">${references.map(referenceRow).join('')}</div></section>`
-      : '<p class="section-empty">Noch keine verarbeiteten Referenzen.</p>'}`;
-}
-
-function renderArchive() {
-  const archived = state.projects.filter((project) => project.status === 'archived');
-  return archived.length
-    ? `<section class="list-section"><div class="project-row-list">${archived.map(projectRow).join('')}</div></section>`
-    : '<p class="section-empty">Noch kein archiviertes Projekt.</p>';
-}
 
 function appBaseUrl() {
   const url = new URL(window.location.href);
@@ -660,172 +87,199 @@ function appBaseUrl() {
   return url.toString();
 }
 
-function settingsRow({ iconName, title, subtitle, action = '', accessory = '', className = '' }) {
-  const content = `
-      <span class="settings-icon">${icon(iconName)}</span>
-      <span class="settings-copy"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(subtitle)}</span></span>
-      ${action ? `<span class="settings-accessory">${accessory || icon('chevron')}</span>` : ''}`;
-  return action
-    ? `<button type="button" class="settings-row settings-action-row ${className}" data-action="${action}" aria-label="${escapeHtml(title)}">${content}</button>`
-    : `<div class="settings-row ${className}">${content}</div>`;
+function syncStatusBarStyle() {
+  if (!statusBarMeta) return;
+  statusBarMeta.content = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'black-translucent' : 'default';
 }
 
-function renderSettings() {
-  const base = appBaseUrl();
-  const sampleProject = state.projects[0]?.id ?? 'PRJ-DEINE-ID';
-  return `
-    <section class="settings-section">
-      <h2>Datensicherung</h2>
-      <div class="settings-group">
-        ${settingsRow({ iconName: 'export', title: 'Backup in Dateien sichern', subtitle: 'Exportiert Projekte, Einträge, Verlauf sowie Eingang und Referenzen.', action: 'share-backup', accessory: 'Teilen' })}
-        ${settingsRow({ iconName: 'import', title: 'JSON-Backup importieren', subtitle: 'Prüft das Backup und stellt den lokalen Bestand wieder her.', action: 'import-backup' })}
-      </div>
-    </section>
-
-    <section class="settings-section">
-      <h2>URLs</h2>
-      <div class="settings-group">
-        ${settingsRow({ iconName: 'copy', title: 'Neues Projekt', subtitle: `${base}?action=new-project`, action: 'copy-url-project' })}
-        ${settingsRow({ iconName: 'copy', title: 'Neuer Bug', subtitle: `${base}?action=new-bug&project=${sampleProject}`, action: 'copy-url-bug' })}
-        ${settingsRow({ iconName: 'copy', title: 'Neue Idee', subtitle: `${base}?action=new-idea&project=${sampleProject}`, action: 'copy-url-idea' })}
-      </div>
-    </section>
-
-    <section class="settings-section">
-      <h2>Lokale Daten</h2>
-      <div class="settings-group">
-        ${settingsRow({ iconName: 'sparkles', title: 'Demodaten hinzufügen', subtitle: 'Legt ein kleines Testportfolio mit Eingang und Referenzen an.', action: 'load-demo' })}
-        ${settingsRow({ iconName: 'trash', title: 'Alle lokalen Daten löschen', subtitle: 'Entfernt Projekte, Einträge, Verlauf, Eingang und Referenzen.', action: 'clear-all', className: 'danger-row' })}
-      </div>
-    </section>
-
-    <footer class="version-footer">
-      <strong>ProjectLog ${APP_VERSION}</strong>
-      <span>lokal · Apple-orientiertes Projektprotokoll</span>
-    </footer>`;
+function showToast(message, timeout = 3000) {
+  toast.textContent = message;
+  toast.classList.add('is-visible');
+  window.clearTimeout(showToast.timer);
+  showToast.timer = window.setTimeout(() => toast.classList.remove('is-visible'), timeout);
 }
 
-function render() {
-  renderHeader();
-  setNavigationState();
-  main.innerHTML = state.projectId
-    ? renderProject()
-    : state.tab === 'projects'
-      ? renderProjects()
-      : state.tab === 'inbox'
-        ? renderInbox()
-        : state.tab === 'library'
-          ? renderLibrary()
-          : state.tab === 'archive'
-            ? renderArchive()
-            : renderSettings();
+function rebuildAttachmentUrls() {
+  for (const value of state.attachmentUrls.values()) URL.revokeObjectURL?.(value);
+  state.attachmentUrls = new Map();
+  for (const attachment of state.attachments) {
+    if (attachment.blob instanceof Blob && URL.createObjectURL) {
+      state.attachmentUrls.set(attachment.id, URL.createObjectURL(attachment.blob));
+    }
+  }
 }
 
 async function refresh({ renderView = true } = {}) {
-  const [projects, bugs, ideas, events, monthlySummaries, settings] = await Promise.all([
+  const [projects, bugs, ideas, inboxItems, references, attachments, events, monthlySummaries, settings] = await Promise.all([
     repository.list('projects'),
     repository.list('bugs'),
     repository.list('ideas'),
+    repository.list('inboxItems'),
+    repository.list('references'),
+    repository.list('attachments'),
     repository.listEvents(),
     repository.listMonthlySummaries(),
     repository.getSettings(),
   ]);
-  const extras = loadExtras();
-  Object.assign(state, {
-    projects,
-    bugs,
-    ideas,
-    events,
-    monthlySummaries,
-    settings: { ...settings, startView: 'projects' },
-    inbox: extras.inbox,
-    references: extras.references,
-  });
+  Object.assign(state, { projects, bugs, ideas, inboxItems, references, attachments, events, monthlySummaries, settings });
+  rebuildAttachmentUrls();
   if (renderView) render();
 }
 
-function tagCheckboxes(selected = []) {
-  return `<fieldset class="field-group tag-fieldset"><legend>Tags</legend><div class="tag-options">${TAG_VALUES.map((tag) => {
-    const meta = tagMeta[tag];
-    return `<label class="tag-option"><input type="checkbox" name="tags" value="${tag}" ${selected.includes(tag) ? 'checked' : ''}><span>${icon(meta.icon)}${escapeHtml(meta.label)}</span></label>`;
-  }).join('')}</div></fieldset>`;
-}
-
-function projectFields(entity) {
-  return `
-    <div class="field-group"><label for="field-name">Name</label><input class="field-control" id="field-name" name="name" maxlength="80" required value="${escapeHtml(entity?.name ?? '')}" autocomplete="off"></div>
-    <div class="field-group"><label for="field-description">Beschreibung</label><textarea class="field-control" id="field-description" name="description" maxlength="2000" placeholder="Ziel, Umfang oder Kontext">${escapeHtml(entity?.description ?? '')}</textarea></div>
-    <div class="field-grid">
-      <div class="field-group"><label for="field-status">Status</label><select class="field-control" id="field-status" name="status">${optionList(projectStatusMeta, entity?.status ?? 'active')}</select></div>
-      <div class="field-group"><label for="field-priority">Priorität</label><select class="field-control" id="field-priority" name="priority">${optionList(projectPriorityMeta, entity?.priority ?? 'normal')}</select></div>
-    </div>
-    <label class="editor-toggle"><input type="checkbox" name="favorite" ${entity?.favorite ? 'checked' : ''}><span>${icon('pin')}Als Favorit markieren</span></label>`;
-}
-
-function entityHistory(entity, type) {
-  if (!entity) return '';
-  const events = state.events.filter((event) => event.entityId === entity.id && event.entityType === type).sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-  return `
-    <details class="entry-history">
-      <summary>${icon('history')}Verlauf <span>${events.length}</span></summary>
-      ${events.length ? `<ol>${events.map((event) => `<li><time>${escapeHtml(formatDateTime(event.timestamp))}</time><span>${escapeHtml(eventDescription(event))}</span></li>`).join('')}</ol>` : '<p>Noch keine relevanten Änderungen.</p>'}
-    </details>`;
-}
-
-function bugFields(entity, prefill) {
-  return `
-    <div class="field-group"><label for="field-title">Titel</label><input class="field-control" id="field-title" name="title" maxlength="120" required value="${escapeHtml(entity?.title ?? prefill?.title ?? '')}" autocomplete="off"></div>
-    <div class="field-group"><label for="field-description">Beschreibung</label><textarea class="field-control" id="field-description" name="description" maxlength="4000" placeholder="Beobachtung, Auswirkung und mögliche Reproduktion">${escapeHtml(entity?.description ?? '')}</textarea></div>
-    <div class="field-grid">
-      <div class="field-group"><label for="field-status">Status</label><select class="field-control" id="field-status" name="status">${optionList(bugStatusMeta, entity?.status ?? 'new')}</select></div>
-      <div class="field-group"><label for="field-severity">Schweregrad</label><select class="field-control" id="field-severity" name="severity">${optionList(bugSeverityMeta, entity?.severity ?? 'major')}</select></div>
-    </div>
-    ${tagCheckboxes(entity?.tags ?? [])}
-    ${entityHistory(entity, 'bug')}`;
-}
-
-function ideaFields(entity, prefill) {
-  return `
-    <div class="field-group"><label for="field-title">Titel</label><input class="field-control" id="field-title" name="title" maxlength="120" required value="${escapeHtml(entity?.title ?? prefill?.title ?? '')}" autocomplete="off"></div>
-    <div class="field-group"><label for="field-description">Beschreibung</label><textarea class="field-control" id="field-description" name="description" maxlength="4000" placeholder="Nutzen, Kontext und mögliche Ausgestaltung">${escapeHtml(entity?.description ?? '')}</textarea></div>
-    <div class="field-grid">
-      <div class="field-group"><label for="field-status">Status</label><select class="field-control" id="field-status" name="status">${optionList(ideaStatusMeta, entity?.status ?? 'new')}</select></div>
-      <div class="field-group"><label for="field-value">Nutzen</label><select class="field-control" id="field-value" name="value">${optionList(ideaValueMeta, entity?.value ?? 'relevant')}</select></div>
-    </div>
-    ${tagCheckboxes(entity?.tags ?? [])}
-    ${entityHistory(entity, 'idea')}`;
-}
-
-function openEditor(type, entity = null, prefill = {}) {
-  const projectId = entity?.projectId ?? prefill.projectId ?? state.projectId;
-  if (['bug', 'idea'].includes(type) && !projectId) {
-    showToast('Öffne zuerst ein Projekt.');
-    return;
+async function migrateLegacyExtras() {
+  const raw = localStorage.getItem(LEGACY_EXTRAS_KEY);
+  if (!raw || state.inboxItems.length || state.references.length) return;
+  let parsed;
+  try { parsed = JSON.parse(raw); }
+  catch { localStorage.removeItem(LEGACY_EXTRAS_KEY); return; }
+  const projectIds = new Set(state.projects.map((project) => project.id));
+  for (const item of parsed.inbox ?? []) {
+    try {
+      await repository.saveInboxItem(createInboxItem({
+        type: ['note', 'link'].includes(item.type) ? item.type : 'note',
+        title: item.title ?? 'Unbenannter Eintrag',
+        body: item.body ?? item.description ?? '',
+        url: item.url ?? '',
+        tags: item.tags ?? [],
+      }, { id: item.id, now: item.createdAt ?? new Date().toISOString() }));
+    } catch { /* invalid legacy item is skipped */ }
   }
-  state.editor = { type, entity, projectId };
-  editorTitle.textContent = entity
-    ? type === 'project' ? 'Projekt bearbeiten' : type === 'bug' ? 'Bug bearbeiten' : 'Idee bearbeiten'
-    : type === 'project' ? 'Neues Projekt' : type === 'bug' ? 'Neuer Bug' : 'Neue Idee';
-  editorFields.innerHTML = type === 'project'
-    ? projectFields(entity)
-    : type === 'bug'
-      ? bugFields(entity, prefill)
-      : ideaFields(entity, prefill);
+  for (const item of parsed.references ?? []) {
+    const validProjects = (item.projectIds ?? []).filter((id) => projectIds.has(id));
+    if (!validProjects.length) continue;
+    try {
+      await repository.saveReference(createReference({
+        type: ['note', 'link'].includes(item.type) ? item.type : 'note',
+        title: item.title ?? 'Unbenannte Referenz',
+        body: item.body ?? item.description ?? '',
+        url: item.url ?? '',
+        projectIds: validProjects,
+        tags: item.tags ?? [],
+      }, { id: item.id, now: item.createdAt ?? new Date().toISOString() }));
+    } catch { /* invalid legacy reference is skipped */ }
+  }
+  localStorage.removeItem(LEGACY_EXTRAS_KEY);
+  await refresh({ renderView: false });
+}
+
+function syncTabBar() {
+  const visible = tabBarVisible(state);
+  nav.hidden = !visible;
+  appShell.classList.toggle('has-root-tabs', visible);
+  appShell.classList.toggle('has-secondary-view', !visible);
+  if (!visible) return;
+  const active = activeRootTab(state);
+  for (const button of nav.querySelectorAll('[data-nav]')) {
+    const selected = button.dataset.nav === active;
+    button.classList.toggle('is-active', selected);
+    button.toggleAttribute('aria-current', selected);
+    if (selected) button.setAttribute('aria-current', 'page');
+    const iconName = button.dataset.nav === 'projects'
+      ? (selected ? 'folder-filled' : 'folder')
+      : (selected ? 'tray-filled' : 'tray');
+    button.querySelector('.tab-icon').innerHTML = icon(iconName);
+  }
+}
+
+function render() {
+  state.baseUrl = appBaseUrl();
+  header.innerHTML = renderHeader(state);
+  main.innerHTML = renderMain(state);
+  syncTabBar();
+}
+
+function navigatePush(name, params = {}) {
+  state.navigation = pushView(state.navigation, name, params);
+  render();
+  main.scrollTop = 0;
+}
+
+function navigateReplace(name, params = {}) {
+  state.navigation = replaceView(state.navigation, name, params);
+  render();
+  main.scrollTop = 0;
+}
+
+function navigateBack() {
+  state.navigation = popView(state.navigation);
+  render();
+  main.scrollTop = 0;
+}
+
+function navigateRoot(root) {
+  state.navigation = resetRootView(state.navigation, root);
+  render();
+  main.scrollTop = 0;
+}
+
+function openSheet(html, context = {}) {
+  state.sheet = context;
+  actionSheetContent.innerHTML = html;
+  document.documentElement.classList.add('modal-open');
+  actionDialog.showModal();
+}
+
+function closeSheet() {
+  if (actionDialog.open) actionDialog.close();
+  state.sheet = null;
+}
+
+function openGlobalMenu() {
+  openSheet(actionSheet({
+    title: 'ProjectLog',
+    actions: [
+      { action: 'go-library', label: 'Bibliothek', detail: 'Alle verarbeiteten Referenzen', iconName: 'link' },
+      { action: 'go-archive', label: 'Archiv', detail: 'Archivierte Projekte und Referenzen', iconName: 'archive' },
+      { action: 'go-settings', label: 'Einstellungen', detail: 'Backup, Kurzbefehle und lokale Daten', iconName: 'gear' },
+    ],
+  }), { type: 'menu' });
+}
+
+function captureEditorDraft() {
+  if (!state.editor || !editorDialog.open) return;
+  const data = new FormData(editorForm);
+  state.editor.draft = Object.fromEntries([...data.entries()].filter(([key]) => key !== 'tags'));
+  state.editor.draft.favorite = data.get('favorite') === 'on';
+}
+
+function renderEditor() {
+  editorTitleElement.textContent = editorTitle(state.editor);
+  editorFields.innerHTML = renderEditorFields(state.editor);
   editorError.hidden = true;
   editorError.textContent = '';
+  const entity = state.editor.entity;
   editorDeleteSlot.innerHTML = entity
-    ? `<button class="danger-button" type="button" data-dialog-action="delete">${type === 'project' ? 'Projekt und alle Einträge löschen' : 'Eintrag löschen'}</button>`
+    ? `<button class="danger-button" type="button" data-editor-action="request-delete">${state.editor.type === 'project' ? 'Projekt löschen' : state.editor.type === 'inbox' ? 'Eingangseintrag löschen' : state.editor.type === 'reference' ? 'Referenz löschen' : 'Eintrag löschen'}</button>`
     : '';
+}
+
+function openEditor(type, entity = null, options = {}) {
+  const projectId = entity?.projectId ?? options.projectId ?? currentProjectForView(state)?.id ?? null;
+  state.editor = {
+    type,
+    entity,
+    projectId,
+    materialType: options.materialType,
+    prefill: options.prefill ?? {},
+    tags: [...(entity?.tags ?? options.tags ?? [])],
+    draft: {},
+  };
+  renderEditor();
   document.documentElement.classList.add('modal-open');
   editorDialog.showModal();
-  window.setTimeout(() => editorFields.querySelector('input:not([type="checkbox"]), textarea, select')?.focus(), 40);
+  window.setTimeout(() => editorFields.querySelector('input:not([type="hidden"]), textarea, select')?.focus(), 50);
+}
+
+function closeEditor() {
+  if (editorDialog.open) editorDialog.close();
+  state.editor = null;
 }
 
 async function saveEditor(formData) {
-  const { type, entity, projectId } = state.editor;
+  const editor = state.editor;
   const now = new Date().toISOString();
-  let saved;
-  if (type === 'project') {
+  const tags = selectedTagsFromEditor(editor);
+  if (editor.type === 'project') {
     const values = {
       name: formData.get('name'),
       description: formData.get('description'),
@@ -833,77 +287,361 @@ async function saveEditor(formData) {
       priority: formData.get('priority'),
       favorite: formData.get('favorite') === 'on',
     };
-    saved = entity ? updateEntity('project', entity, values, now) : createProject(values, { now });
+    const saved = editor.entity ? updateEntity('project', editor.entity, values, now) : createProject(values, { now });
     await repository.saveEntity('project', saved);
-    state.projectId = saved.id;
-    state.projectView = 'overview';
-  } else if (type === 'bug') {
+    closeEditor();
+    await refresh({ renderView: false });
+    state.navigation = pushView(createNavigationState('projects'), 'project', { projectId: saved.id });
+    render();
+  } else if (editor.type === 'bug') {
     const values = {
       title: formData.get('title'),
       description: formData.get('description'),
       status: formData.get('status'),
       severity: formData.get('severity'),
-      tags: formData.getAll('tags'),
+      tags,
     };
-    saved = entity
-      ? updateEntity('bug', entity, values, now)
-      : createBug({ ...values, projectId }, { sequence: await repository.nextSequence('bug'), now });
+    const saved = editor.entity
+      ? updateEntity('bug', editor.entity, values, now)
+      : createBug({ ...values, projectId: editor.projectId }, { sequence: await repository.nextSequence('bug'), now });
     await repository.saveEntity('bug', saved);
-    state.projectId = projectId;
-    state.projectView = 'bugs';
-  } else {
+    closeEditor();
+    await refresh();
+  } else if (editor.type === 'idea') {
     const values = {
       title: formData.get('title'),
       description: formData.get('description'),
       status: formData.get('status'),
       value: formData.get('value'),
-      tags: formData.getAll('tags'),
+      tags,
     };
-    saved = entity
-      ? updateEntity('idea', entity, values, now)
-      : createIdea({ ...values, projectId }, { sequence: await repository.nextSequence('idea'), now });
+    const saved = editor.entity
+      ? updateEntity('idea', editor.entity, values, now)
+      : createIdea({ ...values, projectId: editor.projectId }, { sequence: await repository.nextSequence('idea'), now });
     await repository.saveEntity('idea', saved);
-    state.projectId = projectId;
-    state.projectView = 'ideas';
+    closeEditor();
+    await refresh();
+  } else if (editor.type === 'inbox') {
+    const values = {
+      type: formData.get('materialType'),
+      title: formData.get('title'),
+      body: formData.get('body'),
+      url: formData.get('url') ?? '',
+      attachmentId: editor.entity?.attachmentId ?? null,
+      tags,
+    };
+    const saved = editor.entity
+      ? updateMaterial('inbox', editor.entity, values, now)
+      : createInboxItem(values, { now });
+    await repository.saveInboxItem(saved);
+    closeEditor();
+    await refresh({ renderView: false });
+    state.navigation = pushView(createNavigationState('inbox'), 'inbox-detail', { inboxId: saved.id });
+    render();
+  } else if (editor.type === 'reference') {
+    const values = {
+      title: formData.get('title'),
+      body: formData.get('body'),
+      url: formData.get('url') ?? editor.entity.url,
+      tags,
+    };
+    const saved = updateMaterial('reference', editor.entity, values, now);
+    await repository.saveReference(saved);
+    closeEditor();
+    await refresh();
   }
-  editorDialog.close();
-  state.editor = null;
-  await refresh();
   showToast('Gesichert.');
 }
 
-async function deleteEditorEntity() {
-  const { type, entity } = state.editor ?? {};
-  if (!entity) return;
-  const wording = type === 'project' ? 'dieses Projekt einschließlich aller Einträge und Verläufe' : 'diesen Eintrag';
-  if (!window.confirm(`Möchtest du ${wording} wirklich löschen?`)) return;
-  if (type === 'project') {
-    await repository.removeProjectCascade(entity.id);
-    state.projectId = null;
-    state.tab = 'projects';
-  } else {
-    await repository.deleteEntity(type, entity.id);
+function openTagPicker() {
+  captureEditorDraft();
+  openSheet(tagPickerSheet({ selected: state.editor.tags }), { type: 'tag-picker' });
+}
+
+function openCompose() {
+  openSheet(composeSheet(), { type: 'compose' });
+}
+
+function openProjectMenu() {
+  const project = currentProjectForView(state);
+  if (!project) return;
+  openSheet(actionSheet({
+    title: project.name,
+    actions: [
+      { action: 'project-new-bug', label: 'Neuer Bug', iconName: 'bug' },
+      { action: 'project-new-idea', label: 'Neue Idee', iconName: 'bulb' },
+      { action: 'project-assign-reference', label: 'Referenz zuordnen', iconName: 'link' },
+      { action: 'project-edit', label: 'Projekt bearbeiten', iconName: 'edit' },
+      { action: 'project-delete-request', label: 'Projekt löschen', iconName: 'trash', destructive: true },
+    ],
+  }), { type: 'project-menu', projectId: project.id });
+}
+
+function openInboxMenu() {
+  const item = currentInboxForView(state);
+  if (!item) return;
+  openSheet(actionSheet({
+    title: item.title,
+    actions: [
+      { action: 'inbox-process', label: 'Weiterverarbeiten', detail: 'Projekt, Idee, Bug oder Referenz', iconName: 'sparkles' },
+      { action: 'inbox-share', label: 'Teilen', iconName: 'share' },
+      { action: 'inbox-delete-request', label: 'Löschen', iconName: 'trash', destructive: true },
+    ],
+  }), { type: 'inbox-menu', inboxId: item.id });
+}
+
+function openReferenceMenu() {
+  const reference = currentReferenceForView(state);
+  if (!reference) return;
+  openSheet(actionSheet({
+    title: reference.title,
+    actions: [
+      { action: 'reference-share', label: 'Teilen', iconName: 'share' },
+      { action: 'reference-return', label: 'Zurück in den Eingang', iconName: 'restore' },
+      { action: 'reference-toggle-archive', label: reference.archived ? 'Wiederherstellen' : 'Archivieren', iconName: 'archive' },
+      { action: 'reference-delete-request', label: 'Löschen', iconName: 'trash', destructive: true },
+    ],
+  }), { type: 'reference-menu', referenceId: reference.id });
+}
+
+function openProcessSheet() {
+  const item = currentInboxForView(state);
+  if (!item) return;
+  openSheet(actionSheet({
+    title: 'Weiterverarbeiten',
+    message: 'Der Eingangseintrag wird anschließend aus dem Eingang entfernt.',
+    actions: [
+      { action: 'process-project', label: 'Als Projekt', detail: 'Neues Projekt aus dem Inhalt erstellen', iconName: 'folder' },
+      { action: 'process-idea', label: 'Als Idee', detail: 'Einem Projekt zuordnen', iconName: 'bulb' },
+      { action: 'process-bug', label: 'Als Bug', detail: 'Einem Projekt zuordnen', iconName: 'bug' },
+      { action: 'process-reference', label: 'Als Referenz', detail: 'Einem oder mehreren Projekten zuordnen', iconName: 'link' },
+    ],
+  }), { type: 'process', inboxId: item.id });
+}
+
+function openFilter(type) {
+  const configs = {
+    bugs: {
+      title: 'Bugs filtern',
+      options: [
+        { value: 'open', label: 'Offen' }, { value: 'critical', label: 'Kritisch' },
+        { value: 'resolved', label: 'Behoben' }, { value: 'all', label: 'Alle' },
+      ],
+    },
+    ideas: {
+      title: 'Ideen filtern',
+      options: [
+        { value: 'open', label: 'Offen' }, { value: 'strategic', label: 'Strategisch' },
+        { value: 'implemented', label: 'Umgesetzt' }, { value: 'all', label: 'Alle' },
+      ],
+    },
+    library: {
+      title: 'Bibliothek filtern',
+      options: [
+        { value: 'all', label: 'Alle' }, { value: 'link', label: 'Links' },
+        { value: 'image', label: 'Bilder' }, { value: 'file', label: 'Dateien' }, { value: 'note', label: 'Notizen' },
+      ],
+    },
+  };
+  const config = configs[type];
+  openSheet(filterSheet({ ...config, selected: state.filters[type] }), { type: 'filter', filterType: type });
+}
+
+function openProjectPicker({ purpose, multiple, selected = [], title }) {
+  if (!state.projects.length) {
+    showToast('Lege zuerst ein Projekt an.');
+    return;
   }
-  editorDialog.close();
-  state.editor = null;
+  openSheet(projectPickerSheet({ projects: state.projects.filter((project) => project.status !== 'archived'), selected, multiple, purpose, title }), { type: 'project-picker', purpose });
+}
+
+async function captureFiles(fileList, materialType) {
+  const files = [...(fileList ?? [])];
+  if (!files.length) return;
+  const now = new Date().toISOString();
+  const records = files.map((file) => {
+    const attachment = createAttachment({ name: file.name, type: file.type || 'application/octet-stream', size: file.size, blob: file }, { now });
+    const baseTitle = file.name.replace(/\.[^.]+$/, '') || file.name;
+    const item = createInboxItem({ type: materialType, title: baseTitle, attachmentId: attachment.id }, { now });
+    return { attachment, item };
+  });
+  for (const { attachment, item } of records) {
+    await repository.saveAttachment(attachment);
+    await repository.saveInboxItem(item);
+  }
+  await refresh({ renderView: false });
+  state.navigation = records.length === 1
+    ? pushView(createNavigationState('inbox'), 'inbox-detail', { inboxId: records[0].item.id })
+    : createNavigationState('inbox');
+  render();
+  const label = materialType === 'image' ? (records.length === 1 ? 'Bild' : 'Bilder') : (records.length === 1 ? 'Datei' : 'Dateien');
+  showToast(`${records.length} ${label} im Eingang gesichert.`);
+}
+
+function companionReferenceForInbox(item, projectIds, now) {
+  if (item.type === 'note') return null;
+  return createReference({
+    type: item.type,
+    title: item.title,
+    body: item.body,
+    url: item.url,
+    attachmentId: item.attachmentId,
+    tags: item.tags,
+    projectIds,
+  }, { now });
+}
+
+async function processInboxToProject(inboxId) {
+  const item = state.inboxItems.find((entry) => entry.id === inboxId);
+  if (!item) throw new Error('Eingangseintrag nicht gefunden');
+  const now = new Date().toISOString();
+  const project = createProject({ name: item.title.slice(0, 80), description: item.body, status: 'planned', priority: 'normal', favorite: false }, { now });
+  const reference = companionReferenceForInbox(item, [project.id], now);
+  await repository.processInboxItem({ inboxId, kind: 'project', entity: project, reference });
+  await refresh({ renderView: false });
+  state.navigation = pushView(createNavigationState('projects'), 'project', { projectId: project.id });
+  render();
+  showToast('Als Projekt übernommen.');
+}
+
+async function processInboxWithProjects(purpose, projectIds) {
+  const inboxId = state.sheet?.inboxId ?? state.sheet?.sourceInboxId;
+  const item = state.inboxItems.find((entry) => entry.id === inboxId);
+  if (!item) throw new Error('Eingangseintrag nicht gefunden');
+  const now = new Date().toISOString();
+  if (purpose === 'idea') {
+    const idea = createIdea({ projectId: projectIds[0], title: item.title, description: item.body, tags: item.tags }, { sequence: await repository.nextSequence('idea'), now });
+    const reference = companionReferenceForInbox(item, [projectIds[0]], now);
+    await repository.processInboxItem({ inboxId, kind: 'idea', entity: idea, reference });
+  } else if (purpose === 'bug') {
+    const bug = createBug({ projectId: projectIds[0], title: item.title, description: item.body, tags: item.tags, severity: 'major' }, { sequence: await repository.nextSequence('bug'), now });
+    const reference = companionReferenceForInbox(item, [projectIds[0]], now);
+    await repository.processInboxItem({ inboxId, kind: 'bug', entity: bug, reference });
+  } else if (purpose === 'reference') {
+    const reference = createReference({
+      type: item.type,
+      title: item.title,
+      body: item.body,
+      url: item.url,
+      attachmentId: item.attachmentId,
+      tags: item.tags,
+      projectIds,
+    }, { now });
+    await repository.processInboxItem({ inboxId, kind: 'reference', entity: reference });
+  }
+  await refresh({ renderView: false });
+  state.navigation = resetRootView(state.navigation, 'inbox');
+  render();
+  showToast('Eingangseintrag verarbeitet.');
+}
+
+async function assignReferenceProjects(referenceId, projectIds) {
+  const reference = state.references.find((item) => item.id === referenceId);
+  if (!reference) throw new Error('Referenz nicht gefunden');
+  const updated = updateMaterial('reference', reference, { projectIds }, new Date().toISOString());
+  await repository.saveReference(updated);
   await refresh();
-  showToast('Gelöscht.');
+  showToast('Projektzuordnung aktualisiert.');
+}
+
+async function assignExistingReference(referenceId, projectId) {
+  const reference = state.references.find((item) => item.id === referenceId);
+  if (!reference) throw new Error('Referenz nicht gefunden');
+  const projectIds = [...new Set([...reference.projectIds, projectId])];
+  await repository.saveReference(updateMaterial('reference', reference, { projectIds }, new Date().toISOString()));
+  await refresh();
+  showToast('Referenz zugeordnet.');
+}
+
+function openExistingReferencePicker() {
+  const project = currentProjectForView(state);
+  const available = state.references.filter((reference) => !reference.archived && !reference.projectIds.includes(project.id));
+  if (!available.length) {
+    showToast('Keine weitere Referenz verfügbar.');
+    return;
+  }
+  openSheet(actionSheet({
+    title: 'Referenz zuordnen',
+    actions: available.map((reference) => ({ action: 'assign-existing-reference', value: reference.id, label: reference.title, detail: reference.type, iconName: reference.type === 'link' ? 'link' : reference.type === 'image' ? 'photo' : 'document' })),
+  }), { type: 'reference-picker', projectId: project.id });
+}
+
+async function returnReferenceToInbox(reference) {
+  const inbox = createInboxItem({
+    type: reference.type,
+    title: reference.title,
+    body: reference.body,
+    url: reference.url,
+    attachmentId: reference.attachmentId,
+    tags: reference.tags,
+  }, { now: new Date().toISOString() });
+  await repository.saveInboxItem(inbox);
+  await repository.deleteReference(reference.id);
+  await refresh({ renderView: false });
+  state.navigation = pushView(createNavigationState('inbox'), 'inbox-detail', { inboxId: inbox.id });
+  render();
+  showToast('Zurück in den Eingang verschoben.');
+}
+
+async function copyToClipboard(value) {
+  if (navigator.clipboard?.writeText) {
+    try { await navigator.clipboard.writeText(value); return true; }
+    catch { /* use selection fallback */ }
+  }
+  const area = document.createElement('textarea');
+  area.value = value;
+  area.setAttribute('readonly', '');
+  area.style.position = 'fixed';
+  area.style.opacity = '0';
+  document.body.append(area);
+  area.select();
+  const copied = document.execCommand?.('copy') ?? false;
+  area.remove();
+  return copied;
+}
+
+function currentMaterial() {
+  return currentInboxForView(state) ?? currentReferenceForView(state);
+}
+
+async function openMaterialAttachment() {
+  const item = currentMaterial();
+  if (!item?.attachmentId) throw new Error('Kein Anhang vorhanden');
+  const attachment = state.attachments.find((entry) => entry.id === item.attachmentId);
+  const url = state.attachmentUrls.get(item.attachmentId);
+  if (!attachment || !url) throw new Error('Anhang konnte nicht geöffnet werden');
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  if (!attachment.mimeType.startsWith('image/') && attachment.mimeType !== 'application/pdf') anchor.download = attachment.name;
+  else { anchor.target = '_blank'; anchor.rel = 'noopener'; }
+  anchor.click();
+}
+
+async function shareMaterial(item) {
+  const attachment = item.attachmentId ? await repository.getAttachment(item.attachmentId) : null;
+  const shareData = { title: item.title, text: item.body || item.title };
+  if (item.url) shareData.url = item.url;
+  if (attachment) {
+    const file = new File([attachment.blob], attachment.name, { type: attachment.mimeType });
+    if (navigator.canShare?.({ files: [file] })) shareData.files = [file];
+  }
+  if (navigator.share) {
+    try { await navigator.share(shareData); return; }
+    catch (error) { if (error?.name === 'AbortError') return; }
+  }
+  const text = [item.title, item.url, item.body].filter(Boolean).join('\n');
+  await navigator.clipboard.writeText(text);
+  showToast('In die Zwischenablage kopiert.');
 }
 
 async function shareBackup() {
   const backup = await repository.exportBackup();
-  backup.data.extras = { inbox: state.inbox, references: state.references };
   const blob = new Blob([`${JSON.stringify(backup, null, 2)}\n`], { type: 'application/json' });
   const filename = buildBackupFilename(new Date()).replace('.json', '-v3.json');
   const file = new File([blob], filename, { type: 'application/json' });
   if (navigator.canShare?.({ files: [file] })) {
-    try {
-      await navigator.share({ files: [file], title: 'ProjectLog Backup' });
-      showToast('Backup an das Teilen-Menü übergeben.');
-      return;
-    } catch (error) {
-      if (error?.name === 'AbortError') return;
-    }
+    try { await navigator.share({ files: [file], title: 'ProjectLog Backup' }); return; }
+    catch (error) { if (error?.name === 'AbortError') return; }
   }
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
@@ -914,164 +652,217 @@ async function shareBackup() {
   showToast('Backup heruntergeladen.');
 }
 
-async function importBackup(file) {
+async function executeImport() {
+  const file = state.pendingImport;
+  if (!file) return;
   const parsed = JSON.parse(await file.text());
-  if (!window.confirm('Der Import ersetzt den aktuellen lokalen Bestand. Fortfahren?')) return;
   await repository.importBackup(parsed);
-  state.inbox = Array.isArray(parsed.data?.extras?.inbox) ? parsed.data.extras.inbox : [];
-  state.references = Array.isArray(parsed.data?.extras?.references) ? parsed.data.extras.references : [];
-  saveExtras();
-  state.projectId = null;
+  state.pendingImport = null;
   await refresh({ renderView: false });
-  state.tab = 'projects';
+  state.navigation = createNavigationState('projects');
   render();
-  showToast('Backup geprüft und importiert.');
-}
-
-function seedExtraData(now, projects) {
-  const references = [
-    {
-      id: nextExtraId('REF'),
-      type: 'link',
-      title: 'Apple Human Interface Guidelines',
-      description: 'Designreferenz für Navigation, Listen und klare Hierarchien.',
-      url: 'https://developer.apple.com/design/human-interface-guidelines/',
-      tags: ['design'],
-      projectIds: projects.length ? [projects[0].id] : [],
-      createdAt: now,
-      updatedAt: now,
-    },
-  ];
-  const inbox = [
-    {
-      id: nextExtraId('INB'),
-      type: 'note',
-      title: 'Navigation noch weiter vereinfachen',
-      description: 'Mögliche Feinschliffe für Tab-Bar und Tiefenstaffelung sammeln.',
-      createdAt: now,
-      updatedAt: now,
-    },
-  ];
-  state.references = references;
-  state.inbox = inbox;
-  saveExtras();
+  showToast('Backup importiert.');
 }
 
 async function loadDemo() {
   const now = new Date().toISOString();
   const projects = [
-    createProject({ name: 'ProjectLog', description: 'Lokale Projektzentrale für Projekte, Bugs, Ideen und Referenzen.', status: 'active', priority: 'strategic', favorite: true }, { now }),
-    createProject({ name: 'PlasmaLog', description: 'Bestands- und Planungsapp für Plasma.', status: 'active', priority: 'high', favorite: false }, { now }),
-    createProject({ name: 'CortexOS', description: 'Persönliches System- und Automationsprojekt.', status: 'planned', priority: 'strategic', favorite: false }, { now }),
+    createProject({ name: 'ProjectLog', description: 'Lokale Projektzentrale für Projekte, Bugs, Ideen und Referenzen.', status: 'active', priority: 'strategic', favorite: true }, { id: 'PRJ-DEMO01', now }),
+    createProject({ name: 'PlasmaLog', description: 'Bestands- und Planungsapp für Plasma.', status: 'active', priority: 'high', favorite: false }, { id: 'PRJ-DEMO02', now }),
+    createProject({ name: 'CortexOS', description: 'Persönliches System- und Automationsprojekt.', status: 'planned', priority: 'strategic', favorite: false }, { id: 'PRJ-DEMO03', now }),
   ];
   for (const project of projects) await repository.saveEntity('project', project);
-  await repository.saveEntity('bug', createBug({ projectId: projects[0].id, title: 'Kritischer Bug benötigt Aufmerksamkeit', description: 'Feinschliff im Detailscreen prüfen.', status: 'review', severity: 'critical', tags: ['design', 'quality'] }, { sequence: await repository.nextSequence('bug'), now }));
-  await repository.saveEntity('bug', createBug({ projectId: projects[1].id, title: 'Heatmap prüfen', description: 'Visuelle Dichte im Dashboard reduzieren.', status: 'active', severity: 'major', tags: ['feature'] }, { sequence: await repository.nextSequence('bug'), now }));
-  await repository.saveEntity('idea', createIdea({ projectId: projects[0].id, title: 'Referenzbibliothek', description: 'Projektübergreifende Sicht auf verarbeitete Materialien.', status: 'planned', value: 'strategic', tags: ['design', 'feature'] }, { sequence: await repository.nextSequence('idea'), now }));
-  await repository.saveEntity('idea', createIdea({ projectId: projects[2].id, title: 'Dateistruktur überdenken', description: 'CortexOS-Ziele sauberer gliedern.', status: 'reviewed', value: 'relevant', tags: ['technology'] }, { sequence: await repository.nextSequence('idea'), now }));
-  seedExtraData(now, projects);
-  state.projectId = null;
-  state.tab = 'projects';
-  await refresh();
-  main.scrollTop = 0;
+  await repository.saveEntity('bug', createBug({ projectId: projects[0].id, title: 'Datenexport schlägt fehl', description: 'Backupablauf auf iOS prüfen.', status: 'review', severity: 'critical', tags: ['quality'] }, { sequence: await repository.nextSequence('bug'), now }));
+  await repository.saveEntity('bug', createBug({ projectId: projects[1].id, title: 'Heatmap reagiert träge', status: 'active', severity: 'major', tags: ['feature'] }, { sequence: await repository.nextSequence('bug'), now }));
+  await repository.saveEntity('idea', createIdea({ projectId: projects[0].id, title: 'Referenzbibliothek', description: 'Projektübergreifende Sicht auf Material.', status: 'planned', value: 'strategic', tags: ['design'] }, { sequence: await repository.nextSequence('idea'), now }));
+  const reference = createReference({ type: 'link', title: 'Apple Human Interface Guidelines', body: 'Referenz für Navigation und gruppierte Listen.', url: 'https://developer.apple.com/design/human-interface-guidelines/', projectIds: [projects[0].id, projects[1].id], tags: ['design'] }, { id: 'REF-DEMO01', now });
+  await repository.saveReference(reference);
+  await repository.saveInboxItem(createInboxItem({ type: 'note', title: 'Homegym-App vereinfachen', body: 'Nur Tagesplan und Übungsprotokoll.', tags: ['feature'] }, { id: 'INB-DEMO01', now }));
+  await repository.saveInboxItem(createInboxItem({ type: 'link', title: 'Inspiration für Animationen', url: 'https://developer.apple.com/design/', tags: ['design'] }, { id: 'INB-DEMO02', now }));
+  await refresh({ renderView: false });
+  state.navigation = createNavigationState('projects');
+  render();
   showToast('Demodaten hinzugefügt.');
 }
 
 async function clearAll() {
-  if (!window.confirm('Alle lokalen Projekte, Einträge, Verläufe, Referenzen und Eingangseinträge unwiderruflich löschen?')) return;
   await repository.clearAll();
-  state.inbox = [];
-  state.references = [];
-  saveExtras();
-  state.projectId = null;
   await refresh({ renderView: false });
-  state.tab = 'projects';
+  state.navigation = createNavigationState('projects');
   render();
   showToast('Alle lokalen Daten gelöscht.');
 }
 
-async function toggleFavorite() {
-  const project = currentProject();
-  if (!project) return;
-  const updated = updateEntity('project', project, { favorite: !project.favorite }, new Date().toISOString());
-  await repository.saveEntity('project', updated);
-  await refresh();
-  showToast(updated.favorite ? 'Als Favorit markiert.' : 'Favorit entfernt.');
-}
-
-function createInboxNote() {
-  const title = window.prompt('Titel für den Eingangseintrag:');
-  if (!title) return;
-  const description = window.prompt('Kurze Notiz (optional):') ?? '';
-  const now = new Date().toISOString();
-  state.inbox.unshift({
-    id: nextExtraId('INB'),
-    type: 'note',
-    title: title.trim(),
-    description: description.trim(),
-    createdAt: now,
-    updatedAt: now,
-  });
-  saveExtras();
+async function executeDelete(context) {
+  if (context.kind === 'project') {
+    await repository.removeProjectCascade(context.id);
+    await refresh({ renderView: false });
+    state.navigation = createNavigationState('projects');
+  } else if (context.kind === 'bug' || context.kind === 'idea') {
+    await repository.deleteEntity(context.kind, context.id);
+    await refresh({ renderView: false });
+  } else if (context.kind === 'inbox') {
+    await repository.deleteInboxItem(context.id);
+    await refresh({ renderView: false });
+    state.navigation = createNavigationState('inbox');
+  } else if (context.kind === 'reference') {
+    await repository.deleteReference(context.id);
+    await refresh({ renderView: false });
+    state.navigation = pushView(createNavigationState('projects'), 'library');
+  }
+  closeEditor();
   render();
-  showToast('Eingangseintrag angelegt.');
+  showToast('Gelöscht.');
 }
 
-function copyText(value) {
-  return navigator.clipboard.writeText(value);
+function requestDelete(kind, id, label) {
+  openSheet(confirmSheet({ title: `${label} löschen?`, message: 'Diese Aktion kann nicht rückgängig gemacht werden.', confirmLabel: 'Löschen', action: 'confirm-delete' }), { type: 'confirm-delete', kind, id });
+}
+
+async function toggleFavorite() {
+  const project = currentProjectForView(state);
+  if (!project) return;
+  await repository.saveEntity('project', updateEntity('project', project, { favorite: !project.favorite }, new Date().toISOString()));
+  await refresh();
 }
 
 async function handleAction(action, target) {
-  state.menuOpen = false;
   switch (action) {
     case 'new-project': openEditor('project'); break;
-    case 'new-inbox': createInboxNote(); break;
-    case 'open-project': state.projectId = target.dataset.id; state.projectView = 'overview'; state.projectFilter = 'all'; render(); main.scrollTop = 0; break;
-    case 'back-projects': state.projectId = null; state.tab = 'projects'; render(); main.scrollTop = 0; break;
-    case 'back-project-overview': state.projectView = 'overview'; state.projectFilter = 'all'; render(); main.scrollTop = 0; break;
-    case 'back-home': state.tab = 'projects'; render(); main.scrollTop = 0; break;
+    case 'open-compose': openCompose(); break;
+    case 'open-global-menu': openGlobalMenu(); break;
+    case 'navigate-back': navigateBack(); break;
+    case 'open-project': navigatePush('project', { projectId: target.dataset.id }); break;
+    case 'open-project-bugs': navigatePush('bugs', { projectId: currentProjectForView(state).id }); break;
+    case 'open-project-ideas': navigatePush('ideas', { projectId: currentProjectForView(state).id }); break;
+    case 'open-project-references': navigatePush('project-references', { projectId: currentProjectForView(state).id }); break;
+    case 'open-project-history': navigatePush('history', { projectId: currentProjectForView(state).id }); break;
     case 'toggle-favorite': await toggleFavorite(); break;
-    case 'edit-project': openEditor('project', currentProject()); break;
-    case 'project-plus-menu':
-      if (window.confirm('Bug anlegen? Abbrechen für Idee.')) openEditor('bug');
-      else openEditor('idea');
-      break;
-    case 'new-bug': openEditor('bug'); break;
-    case 'new-idea': openEditor('idea'); break;
+    case 'open-project-menu': openProjectMenu(); break;
+    case 'new-bug': openEditor('bug', null, { projectId: currentProjectForView(state).id }); break;
+    case 'new-idea': openEditor('idea', null, { projectId: currentProjectForView(state).id }); break;
     case 'edit-bug': openEditor('bug', state.bugs.find((item) => item.id === target.dataset.id)); break;
     case 'edit-idea': openEditor('idea', state.ideas.find((item) => item.id === target.dataset.id)); break;
-    case 'open-project-bugs': state.projectView = 'bugs'; state.projectFilter = 'active'; render(); main.scrollTop = 0; break;
-    case 'open-project-ideas': state.projectView = 'ideas'; state.projectFilter = 'open'; render(); main.scrollTop = 0; break;
-    case 'open-project-references': state.projectView = 'references'; render(); main.scrollTop = 0; break;
-    case 'open-project-history': state.projectView = 'history'; render(); main.scrollTop = 0; break;
-    case 'set-subfilter': state.projectFilter = target.dataset.filter; render(); break;
-    case 'toggle-menu': state.menuOpen = !state.menuOpen; render(); break;
-    case 'open-library': state.tab = 'library'; render(); main.scrollTop = 0; break;
-    case 'open-archive': state.tab = 'archive'; render(); main.scrollTop = 0; break;
-    case 'open-settings': state.tab = 'settings'; render(); main.scrollTop = 0; break;
+    case 'open-bug-filter': openFilter('bugs'); break;
+    case 'open-idea-filter': openFilter('ideas'); break;
+    case 'open-library-filter': openFilter('library'); break;
+    case 'open-inbox-item': navigatePush('inbox-detail', { inboxId: target.dataset.inboxId }); break;
+    case 'edit-inbox-item': openEditor('inbox', currentInboxForView(state)); break;
+    case 'open-inbox-menu': openInboxMenu(); break;
+    case 'process-inbox': openProcessSheet(); break;
+    case 'open-reference': navigatePush('reference-detail', { referenceId: target.dataset.referenceId }); break;
+    case 'edit-reference': openEditor('reference', currentReferenceForView(state)); break;
+    case 'open-reference-menu': openReferenceMenu(); break;
+    case 'assign-reference-projects': {
+      const reference = currentReferenceForView(state);
+      openProjectPicker({ purpose: 'reference-projects', multiple: true, selected: reference.projectIds, title: 'Projekte zuordnen' });
+      state.sheet.referenceId = reference.id;
+      break;
+    }
+    case 'open-reference-link': window.open(currentReferenceForView(state).url, '_blank', 'noopener'); break;
+    case 'open-material-attachment': await openMaterialAttachment(); break;
+    case 'assign-existing-reference': openExistingReferencePicker(); break;
+    case 'choose-import': importInput.click(); break;
     case 'share-backup': await shareBackup(); break;
-    case 'import-backup': importInput.click(); break;
+    case 'open-shortcuts': navigatePush('shortcuts'); break;
     case 'load-demo': await loadDemo(); break;
-    case 'clear-all': await clearAll(); break;
-    case 'clear-search': state.search = ''; render(); break;
-    case 'copy-url-project': await copyText(`${appBaseUrl()}?action=new-project`); showToast('URL kopiert.'); break;
-    case 'copy-url-bug': await copyText(`${appBaseUrl()}?action=new-bug&project=${encodeURIComponent(state.projects[0]?.id ?? 'PRJ-DEINE-ID')}`); showToast('URL kopiert.'); break;
-    case 'copy-url-idea': await copyText(`${appBaseUrl()}?action=new-idea&project=${encodeURIComponent(state.projects[0]?.id ?? 'PRJ-DEINE-ID')}`); showToast('URL kopiert.'); break;
+    case 'request-clear-all': openSheet(confirmSheet({ title: 'Alle Daten löschen?', message: 'Projekte, Eingang, Referenzen und Anhänge werden lokal entfernt.', confirmLabel: 'Alle Daten löschen', action: 'confirm-clear-all' }), { type: 'confirm-clear-all' }); break;
+    case 'copy-shortcut': showToast(await copyToClipboard(target.dataset.url) ? 'URL kopiert.' : 'Kopieren ist nicht verfügbar.'); break;
+  }
+}
+
+async function handleSheetAction(action, target) {
+  const context = state.sheet;
+  if (action === 'cancel') { closeSheet(); return; }
+  if (action === 'compose-note') { closeSheet(); openEditor('inbox', null, { materialType: 'note' }); return; }
+  if (action === 'compose-link') { closeSheet(); openEditor('inbox', null, { materialType: 'link' }); return; }
+  if (action === 'compose-image') { closeSheet(); imageInput.click(); return; }
+  if (action === 'compose-file') { closeSheet(); attachmentInput.click(); return; }
+  if (action === 'go-library') { closeSheet(); navigatePush('library'); return; }
+  if (action === 'go-archive') { closeSheet(); navigatePush('archive'); return; }
+  if (action === 'go-settings') { closeSheet(); navigatePush('settings'); return; }
+  if (action === 'project-new-bug') { const id = context.projectId; closeSheet(); openEditor('bug', null, { projectId: id }); return; }
+  if (action === 'project-new-idea') { const id = context.projectId; closeSheet(); openEditor('idea', null, { projectId: id }); return; }
+  if (action === 'project-assign-reference') { closeSheet(); openExistingReferencePicker(); return; }
+  if (action === 'project-edit') { const project = state.projects.find((item) => item.id === context.projectId); closeSheet(); openEditor('project', project); return; }
+  if (action === 'project-delete-request') { const id = context.projectId; closeSheet(); requestDelete('project', id, 'Projekt'); return; }
+  if (action === 'inbox-process') { closeSheet(); openProcessSheet(); return; }
+  if (action === 'inbox-share') { const item = state.inboxItems.find((entry) => entry.id === context.inboxId); closeSheet(); await shareMaterial(item); return; }
+  if (action === 'inbox-delete-request') { const id = context.inboxId; closeSheet(); requestDelete('inbox', id, 'Eingangseintrag'); return; }
+  if (action === 'process-project') { const id = context.inboxId; closeSheet(); await processInboxToProject(id); return; }
+  if (['process-idea', 'process-bug', 'process-reference'].includes(action)) {
+    const purpose = action.replace('process-', '');
+    const inboxId = context.inboxId;
+    closeSheet();
+    openProjectPicker({ purpose, multiple: purpose === 'reference', title: purpose === 'reference' ? 'Projekte für Referenz' : 'Projekt auswählen' });
+    state.sheet.inboxId = inboxId;
+    return;
+  }
+  if (action === 'reference-share') { const reference = state.references.find((item) => item.id === context.referenceId); closeSheet(); await shareMaterial(reference); return; }
+  if (action === 'reference-return') { const reference = state.references.find((item) => item.id === context.referenceId); closeSheet(); await returnReferenceToInbox(reference); return; }
+  if (action === 'reference-toggle-archive') {
+    const reference = state.references.find((item) => item.id === context.referenceId);
+    closeSheet();
+    await repository.saveReference(updateMaterial('reference', reference, { archived: !reference.archived }, new Date().toISOString()));
+    await refresh({ renderView: false });
+    state.navigation = pushView(createNavigationState('projects'), reference.archived ? 'library' : 'archive');
+    render();
+    return;
+  }
+  if (action === 'reference-delete-request') { const id = context.referenceId; closeSheet(); requestDelete('reference', id, 'Referenz'); return; }
+  if (action === 'assign-existing-reference') { const referenceId = target.dataset.value; const projectId = context.projectId; closeSheet(); await assignExistingReference(referenceId, projectId); return; }
+  if (action === 'confirm-delete') { closeSheet(); await executeDelete(context); return; }
+  if (action === 'confirm-clear-all') { closeSheet(); await clearAll(); return; }
+  if (action === 'confirm-import') { closeSheet(); await executeImport(); return; }
+}
+
+async function handleSheetSubmit(event) {
+  event.preventDefault();
+  const context = state.sheet;
+  const data = new FormData(event.target);
+  if (context.type === 'tag-picker') {
+    state.editor.tags = data.getAll('tags');
+    closeSheet();
+    renderEditor();
+    return;
+  }
+  if (context.type === 'filter') {
+    state.filters[context.filterType] = data.get('filter');
+    closeSheet();
+    render();
+    return;
+  }
+  if (context.type === 'project-picker') {
+    const projectIds = data.getAll('projectIds');
+    if (!projectIds.length) { showToast('Wähle mindestens ein Projekt.'); return; }
+    const purpose = context.purpose;
+    const inboxId = context.inboxId;
+    const referenceId = context.referenceId;
+    closeSheet();
+    if (purpose === 'reference-projects') await assignReferenceProjects(referenceId, projectIds);
+    else {
+      state.sheet = { inboxId };
+      await processInboxWithProjects(purpose, projectIds);
+      state.sheet = null;
+    }
   }
 }
 
 function delegatedAction(event) {
   const target = event.target.closest('[data-action]');
-  if (target) handleAction(target.dataset.action, target).catch((error) => showToast(error.message, 4800));
+  if (!target) return;
+  handleAction(target.dataset.action, target).catch((error) => showToast(error.message, 4800));
 }
 
 header.addEventListener('click', delegatedAction);
 main.addEventListener('click', delegatedAction);
 main.addEventListener('input', (event) => {
-  if (!['project-search', 'inbox-search', 'library-search'].includes(event.target.id)) return;
-  state.search = event.target.value;
+  const keys = { 'project-search': 'projects', 'inbox-search': 'inbox', 'library-search': 'library' };
+  const key = keys[event.target.id];
+  if (!key) return;
+  state.search[key] = event.target.value;
   const selection = [event.target.selectionStart, event.target.selectionEnd];
-  render();
+  main.innerHTML = renderMain(state);
   const input = main.querySelector(`#${event.target.id}`);
   input?.focus();
   input?.setSelectionRange(...selection);
@@ -1079,13 +870,7 @@ main.addEventListener('input', (event) => {
 nav.addEventListener('click', (event) => {
   const target = event.target.closest('[data-nav]');
   if (!target) return;
-  state.tab = target.dataset.nav;
-  state.projectId = null;
-  state.projectView = 'overview';
-  state.search = '';
-  render();
-  main.scrollTop = 0;
-  main.focus({ preventScroll: true });
+  navigateRoot(target.dataset.nav);
 });
 editorForm.addEventListener('submit', (event) => {
   event.preventDefault();
@@ -1096,18 +881,45 @@ editorForm.addEventListener('submit', (event) => {
   });
 });
 editorDialog.addEventListener('click', (event) => {
-  const action = event.target.closest('[data-dialog-action]')?.dataset.dialogAction;
-  if (action === 'cancel') editorDialog.close();
-  if (action === 'delete') deleteEditorEntity().catch((error) => showToast(error.message, 4800));
+  const action = event.target.closest('[data-editor-action]')?.dataset.editorAction;
+  if (action === 'cancel') closeEditor();
+  if (action === 'choose-tags') openTagPicker();
+  if (action === 'request-delete') {
+    const entity = state.editor.entity;
+    const kind = state.editor.type;
+    closeEditor();
+    requestDelete(kind, entity.id, kind === 'project' ? 'Projekt' : kind === 'inbox' ? 'Eingangseintrag' : kind === 'reference' ? 'Referenz' : 'Eintrag');
+  }
 });
 editorDialog.addEventListener('close', () => {
-  document.documentElement.classList.remove('modal-open');
-  editorError.hidden = true;
-  if (!editorDialog.open) state.editor = null;
+  if (!actionDialog.open) document.documentElement.classList.remove('modal-open');
+  if (!editorDialog.open && !actionDialog.open) state.editor = null;
+});
+actionDialog.addEventListener('click', (event) => {
+  if (event.target === actionDialog) { closeSheet(); return; }
+  const target = event.target.closest('[data-sheet-action]');
+  if (!target) return;
+  handleSheetAction(target.dataset.sheetAction, target).catch((error) => showToast(error.message, 4800));
+});
+actionDialog.addEventListener('submit', (event) => handleSheetSubmit(event).catch((error) => showToast(error.message, 4800)));
+actionDialog.addEventListener('close', () => {
+  if (!editorDialog.open) document.documentElement.classList.remove('modal-open');
+  if (!actionDialog.open) state.sheet = null;
+});
+imageInput.addEventListener('change', () => {
+  if (imageInput.files.length) captureFiles(imageInput.files, 'image').catch((error) => showToast(error.message, 4800));
+  imageInput.value = '';
+});
+attachmentInput.addEventListener('change', () => {
+  if (attachmentInput.files.length) captureFiles(attachmentInput.files, 'file').catch((error) => showToast(error.message, 4800));
+  attachmentInput.value = '';
 });
 importInput.addEventListener('change', () => {
   const [file] = importInput.files;
-  if (file) importBackup(file).catch((error) => showToast(`Import fehlgeschlagen: ${error.message}`, 5200));
+  if (file) {
+    state.pendingImport = file;
+    openSheet(confirmSheet({ title: 'Backup importieren?', message: 'Der aktuelle lokale Bestand wird erst nach erfolgreicher Prüfung ersetzt.', confirmLabel: 'Importieren', action: 'confirm-import' }), { type: 'confirm-import' });
+  }
   importInput.value = '';
 });
 
@@ -1119,13 +931,12 @@ async function applyLaunchCommand() {
     const project = state.projects.find((item) => item.id === command.projectId);
     if (!project) showToast('Das angegebene Projekt wurde nicht gefunden.', 4800);
     else if (command.type === 'open-project') {
-      state.projectId = project.id;
-      state.projectView = 'overview';
+      state.navigation = pushView(createNavigationState('projects'), 'project', { projectId: project.id });
       render();
     } else {
-      state.projectId = project.id;
+      state.navigation = pushView(createNavigationState('projects'), command.type === 'new-bug' ? 'bugs' : 'ideas', { projectId: project.id });
       render();
-      openEditor(command.type === 'new-bug' ? 'bug' : 'idea', null, { projectId: project.id, title: command.title });
+      openEditor(command.type === 'new-bug' ? 'bug' : 'idea', null, { projectId: project.id, prefill: { title: command.title } });
     }
   }
   if (window.location.search) history.replaceState(null, '', window.location.pathname);
@@ -1143,15 +954,19 @@ async function bootstrap() {
     await repository.init();
     await repository.compactHistory();
     await refresh({ renderView: false });
-    state.tab = 'projects';
+    await migrateLegacyExtras();
+    state.navigation = createNavigationState(state.settings.startView);
     render();
     await applyLaunchCommand();
     await registerServiceWorker();
   } catch (error) {
     console.error(error);
-    main.innerHTML = `<section class="fatal-error"><h2>ProjectLog konnte nicht starten</h2><p>${escapeHtml(error.message)}</p><p>Prüfe HTTPS beziehungsweise localhost und erlaube lokalen Speicher.</p></section>`;
+    main.innerHTML = `<section class="fatal-error"><h2>ProjectLog konnte nicht starten</h2><p>${escapeHtml(error.message)}</p><p>Prüfe HTTPS und erlaube lokalen Speicher.</p></section>`;
   }
 }
 
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', syncStatusBarStyle);
+window.addEventListener('beforeunload', () => {
+  for (const value of state.attachmentUrls.values()) URL.revokeObjectURL?.(value);
+});
 bootstrap();

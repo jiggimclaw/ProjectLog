@@ -42,6 +42,15 @@ const paths = {
   'check-badge': '<path d="m12 3 2 2.2 3-.2.8 2.9 2.5 1.7-1.2 2.8 1.2 2.8-2.5 1.7-.8 2.9-3-.2L12 21l-2-2.2-3 .2-.8-2.9-2.5-1.7 1.2-2.8-1.2-2.8 2.5-1.7L7 5l3 .2z"/><path d="m8.5 12 2.2 2.2 4.8-4.8"/>',
   document: '<path d="M6 2h8l4 4v16H6z"/><path d="M14 2v5h5M9 12h6M9 16h6"/>',
   filter: '<path d="M4 5h16M7 12h10M10 19h4"/>',
+  check: '<path d="m5 12 4 4L19 6"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1"/><path d="M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1"/>',
+  photo: '<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m4 17 4.5-4.5 3.5 3 2.5-2.5L20 18"/>',
+  paperclip: '<path d="m9.5 12.5 6.4-6.4a3.2 3.2 0 0 1 4.5 4.5l-8.8 8.8a5 5 0 0 1-7.1-7.1l8.1-8.1"/><path d="m7.2 14.8 7.9-7.9a1.5 1.5 0 0 1 2.1 2.1l-7.9 7.9a2 2 0 1 1-2.8-2.8l7.2-7.2"/>',
+  share: '<path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/>',
+  sliders: '<path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h7M15 18h5"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="13" cy="18" r="2"/>',
+  external: '<path d="M14 4h6v6M20 4l-9 9"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+  restore: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
+  camera: '<path d="M4 7h3l2-2h6l2 2h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z"/><circle cx="12" cy="13" r="4"/>',
 };
 
 export function icon(name, className = '') {

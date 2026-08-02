@@ -38,6 +38,18 @@ export function formatRelative(value, now = new Date()) {
   return shortDateFormatter.format(date);
 }
 
+export function formatRelativeDay(value, now = new Date()) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'unbekannt';
+  const startNow = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const days = Math.round((startNow.getTime() - startDate.getTime()) / 86400000);
+  if (days === 0) return 'heute';
+  if (days === 1) return 'gestern';
+  if (days > 1 && days < 7) return `vor ${days} Tagen`;
+  return shortDateFormatter.format(date);
+}
+
 export function plural(count, singular, pluralForm) {
   return `${count} ${count === 1 ? singular : pluralForm}`;
 }
