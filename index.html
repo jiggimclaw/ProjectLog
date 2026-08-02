@@ -8,28 +8,21 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta id="status-bar-style" name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="ProjectLog">
-  <meta name="description" content="Lokale Projektzentrale für Projekte, Bugs, Ideen und nachvollziehbare Entwicklungen.">
-  <link rel="manifest" href="./manifest.webmanifest">
+  <meta name="description" content="Lokale Projektzentrale für Projekte, Bugs, Ideen, Referenzen und rohe Eingangsmaterialien.">
+  <link rel="manifest" href="./manifest.webmanifest?v=3.2.0">
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
-  <link rel="stylesheet" href="./styles.css?v=3.1.0">
+  <link rel="stylesheet" href="./styles.css?v=3.2.0">
   <title>ProjectLog</title>
 </head>
 <body>
   <div id="app-shell" class="app-shell">
-    <header id="app-header" class="app-header">
-      <div class="header-row">
-        <div class="header-title-group"><p class="header-kicker">ProjectLog</p><h1>Projekte</h1></div>
-        <button class="toolbar-button primary" type="button" data-action="new-project" aria-label="Neues Projekt"><span aria-hidden="true">＋</span></button>
-      </div>
-    </header>
-
+    <header id="app-header" class="app-header" aria-label="Seitennavigation"></header>
     <main id="app-main" class="app-main" tabindex="-1">
       <section class="loading-state" aria-label="App wird geladen"><div class="spinner" aria-hidden="true"></div><p>Daten werden geladen …</p></section>
     </main>
-
-    <nav class="tab-bar" aria-label="Hauptnavigation">
-      <button type="button" class="tab-item is-active" data-nav="projects" aria-current="page"><span class="tab-icon" aria-hidden="true">▣</span><span>Projekte</span></button>
-      <button type="button" class="tab-item" data-nav="inbox"><span class="tab-icon" aria-hidden="true">▣</span><span>Eingang</span></button>
+    <nav id="tab-bar" class="tab-bar" aria-label="Hauptnavigation">
+      <button type="button" class="tab-item is-active" data-nav="projects" aria-current="page"><span class="tab-icon" aria-hidden="true"></span><span>Projekte</span></button>
+      <button type="button" class="tab-item" data-nav="inbox"><span class="tab-icon" aria-hidden="true"></span><span>Eingang</span></button>
     </nav>
   </div>
 
@@ -37,7 +30,7 @@
     <form id="editor-form" method="dialog" novalidate>
       <div class="sheet-handle" aria-hidden="true"></div>
       <header class="sheet-header">
-        <button type="button" class="text-button" data-dialog-action="cancel">Abbrechen</button>
+        <button type="button" class="text-button" data-editor-action="cancel">Abbrechen</button>
         <h2 id="editor-title">Eintrag</h2>
         <button type="submit" class="text-button strong">Sichern</button>
       </header>
@@ -49,8 +42,14 @@
     </form>
   </dialog>
 
+  <dialog id="action-dialog" class="action-dialog" aria-labelledby="action-sheet-title">
+    <div id="action-sheet-content"></div>
+  </dialog>
+
+  <input id="image-file" type="file" accept="image/*" multiple hidden>
+  <input id="attachment-file" type="file" accept="application/pdf,text/plain,text/markdown,application/json,.pdf,.txt,.md,.json" multiple hidden>
   <input id="import-file" type="file" accept="application/json,.json" hidden>
   <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
-  <script type="module" src="./src/app.js?v=3.1.0"></script>
+  <script type="module" src="./src/app.js?v=3.2.0"></script>
 </body>
 </html>

@@ -1,11 +1,11 @@
-const CACHE_NAME = 'projectlog-shell-v3-1-0';
-const VERSION = '3.1.0';
+const CACHE_NAME = 'projectlog-shell-v3-2-0';
+const VERSION = '3.2.0';
 const versioned = (path) => `${path}?v=${VERSION}`;
 const APP_SHELL = [
   './',
   './index.html',
   versioned('./styles.css'),
-  './manifest.webmanifest',
+  versioned('./manifest.webmanifest'),
   versioned('./src/app.js'),
   versioned('./src/analytics.js'),
   versioned('./src/backup.js'),
@@ -17,6 +17,11 @@ const APP_SHELL = [
   versioned('./src/router.js'),
   versioned('./src/storage.js'),
   versioned('./src/view-helpers.js'),
+  versioned('./src/materials.js'),
+  versioned('./src/navigation.js'),
+  versioned('./src/sheets.js'),
+  versioned('./src/forms.js'),
+  versioned('./src/views.js'),
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/apple-touch-icon.png',

@@ -1,27 +1,37 @@
-# ProjectLog 2.0
+# ProjectLog 3.2
 
-ProjectLog ist eine lokale, offlinefähige Projektzentrale für private Projekte, Bugs und Ideen. Die PWA benötigt weder Konto noch Backend und überträgt keine Nutzungsdaten.
+ProjectLog ist eine lokale, offlinefähige Projektzentrale für private Projekte. Die PWA benötigt kein Konto und kein Backend. Projekte, Bugs, Ideen, Eingangsmaterialien, Referenzen und Anhänge werden ausschließlich lokal gespeichert.
 
-## Kernfunktionen
+## Grundstruktur
 
-- Dashboard mit Portfolio-Kennzahlen, Favoriten, Projektlage und 30-Tage-Verlauf
-- Projekte mit Status, strategischer Priorität, Favorit und automatisch berechneter Gesundheit
-- Bugs mit fünf Bearbeitungsstatus und drei klaren Schweregraden
-- Ideen mit fünf Bearbeitungsstatus und drei Nutzenstufen
-- feste Mehrfach-Tags: Funktion, Design, Technik, Qualität, Dokumentation, Sonstiges
-- projektbezogener Verlauf aus datensparsamen Ereignissen
-- automatische Verdichtung von Ereignissen, die älter als zwölf Monate sind
-- globale Suche über Projekte, Bugs, Ideen, IDs und Tags
-- validierter Import von ProjectLog-1.x- und ProjectLog-2.x-Backups
-- JSON-Backup über das iOS-Teilen-Menü
-- sichere HTTPS-URL-Aktionen für Apple Kurzbefehle
-- Light Mode, Dark Mode, Safe Areas und reduzierte Bewegung
+Die App besitzt nur zwei Hauptbereiche:
 
-## Informationsmodell
+- **Projekte** — strukturierte Arbeit mit Bugs, Ideen, Referenzen und Verlauf
+- **Eingang** — rohe Notizen, Links, Bilder und Dateien vor ihrer Zuordnung
 
-### Projekte
+Bibliothek, Archiv, Backup und Einstellungen sind sekundäre Ansichten und erscheinen deshalb nicht in der Tab-Bar.
 
-Status:
+## Eingang und Referenzen
+
+Ein Eingangseintrag kann erfasst werden als:
+
+- Notiz
+- Link
+- Foto oder Bild
+- Datei: PDF, Text, Markdown oder JSON
+
+Anschließend kann er weiterverarbeitet werden als:
+
+- neues Projekt
+- Idee eines Projekts
+- Bug eines Projekts
+- Referenz für eines oder mehrere Projekte
+
+Sobald eine Zuordnung erfolgt, verschwindet das Material aus dem Eingang. Links, Bilder und Dateien bleiben bei einer Umwandlung in Projekt, Idee oder Bug zusätzlich als verknüpfte Referenz erhalten. Der Anhang wird dabei nicht dupliziert.
+
+## Projekte
+
+Projektstatus:
 
 - Geplant
 - Aktiv
@@ -36,140 +46,109 @@ Priorität:
 - Hoch
 - Strategisch
 
-Die Priorität ist manuell und wird in Listen durch einen schmalen violetten Rand sowie Text dargestellt. Die Projektgesundheit wird separat und nachvollziehbar aus Status, offenen Bugs und Aktivität berechnet.
+Ein Projektdetail zeigt in dieser Reihenfolge:
 
-### Bugs
+1. genau einen kritischen Hinweis, sofern erforderlich
+2. Beschreibung
+3. Bugs, Ideen, Referenzen und Verlauf
+4. letzte Änderungen
 
-Status:
+Technische IDs erscheinen nicht in der normalen Oberfläche.
 
-- Neu
-- In Prüfung
-- In Arbeit
-- Behoben
-- Verworfen
+## Datenspeicherung
 
-Schweregrad:
+ProjectLog verwendet ein einheitliches IndexedDB-Schema für:
 
-- Gering — gelb, Ausrufezeichen im Kreis
-- Wesentlich — orange, Ausrufezeichen im Dreieck
-- Kritisch — rot, Ausrufezeichen im Achteck
+- Projekte
+- Bugs
+- Ideen
+- Eingangseinträge
+- Referenzen
+- Anhänge
+- Ereignisse und Monatsverdichtungen
 
-### Ideen
+Anhänge sind auf **12 MB pro Datei** begrenzt. Ereignisse protokollieren nur relevante semantische Änderungen und werden nach zwölf Monaten zu Monatswerten verdichtet. Es gibt keine Telemetrie.
 
-Status:
+## Backup und Migration
 
-- Neu
-- Geprüft
-- Geplant
-- Umgesetzt
-- Verworfen
+ProjectLog 3.2 verwendet:
 
-Nutzen:
+```text
+projectlog.backup.v3
+```
 
-- Klein — grau
-- Relevant — blau
-- Strategisch — goldgelb mit Funkeln
+Backups enthalten auch Eingang, Referenzen und Anhänge. Backups aus ProjectLog 1.x und 2.x sowie bestehende ProjectLog-3.1-Daten werden beim Import beziehungsweise beim ersten Start migriert.
 
-Apple-Lila bleibt ausschließlich die primäre Akzentfarbe für Navigation, Auswahl und Aktionen.
+Vor einem Update sollte unter **Einstellungen → Backup exportieren** eine Sicherung erstellt werden.
 
 ## Installation über GitHub Pages
 
-1. Das vollständige ZIP entpacken.
-2. Den **Inhalt** des entpackten Ordners in das GitHub-Repository hochladen.
-3. Im Repository **Settings → Pages** öffnen.
-4. Unter **Build and deployment** „Deploy from a branch“ wählen.
-5. Branch `main` und Ordner `/ (root)` auswählen.
-6. Die Pages-Adresse auf dem iPhone in Safari öffnen.
-7. **Teilen → Zum Home-Bildschirm → Hinzufügen**.
-8. ProjectLog einmal mit Internet starten, damit die Offline-App-Shell geladen wird.
+1. Das Updatepaket entpacken.
+2. Den **Inhalt** des entpackten Ordners in das GitHub-Repository hochladen und vorhandene Dateien ersetzen.
+3. Unter **Settings → Pages** den Branch `main` und `/ (root)` veröffentlichen.
+4. Die Pages-Adresse in Safari öffnen.
+5. **Teilen → Zum Home-Bildschirm → Hinzufügen** wählen.
+6. ProjectLog einmal online starten, damit die Offline-App-Shell gespeichert wird.
 
-## Aktualisierung einer bestehenden Installation
+ProjectLog 3.2 verwendet den Cache-Namen:
 
-Vor dem Update in ProjectLog unter **Einstellungen → Backup in Dateien sichern** ein JSON-Backup erstellen.
+```text
+projectlog-shell-v3-2-0
+```
 
-Danach den vollständigen Inhalt des Update-Pakets in dasselbe Repository hochladen und bestehende Dateien ersetzen. ProjectLog 3.1 verwendet den Cache-Namen `projectlog-shell-v3-1-0` und versionsgebundene Modul-URLs, damit alte iOS-PWA-Dateien nicht weiterverwendet werden.
+## Apple Kurzbefehle
 
-Die bestehende lokale Datenbank wird beim ersten Start in das Schema 2 migriert. Projektbeschreibungen, Bugs und Ideen bleiben erhalten. Für neue Felder werden konservative Standardwerte vergeben.
-
-## Datenspeicherung und Verlauf
-
-Die Inhalte liegen ausschließlich in IndexedDB des Safari-/PWA-Profils. ProjectLog speichert bei relevanten Änderungen nur kompakte Ereignisse:
-
-- Zeitpunkt
-- Eintragstyp und ID
-- Änderungsart
-- alter und neuer semantischer Wert
-
-Frühere Beschreibungstexte, Geräteinformationen, Standorte und Nutzungsanalysen werden nicht protokolliert. Ereignisse über zwölf Monate werden lokal zu monatlichen Summen verdichtet.
-
-Das Löschen von Safari-Websitedaten oder der Homescreen-PWA kann lokale ProjectLog-Daten entfernen. Deshalb vor Gerätewechseln, Systembereinigungen und größeren Updates ein Backup exportieren.
-
-## URL-Aktionen
-
-Die URL-Parameter öffnen nur Ansichten oder vorausgefüllte Formulare. Sie speichern oder löschen nichts automatisch.
+Die URL-Aktionen öffnen nur sichere Ansichten oder Erfassungsformulare. Sie löschen oder importieren nichts automatisch.
 
 ```text
 https://DEINE-ADRESSE/?action=new-project
 https://DEINE-ADRESSE/?action=new-bug&project=PRJ-12345678&title=Kurztitel
 https://DEINE-ADRESSE/?action=new-idea&project=PRJ-12345678&title=Kurztitel
-https://DEINE-ADRESSE/?project=PRJ-12345678&view=overview
-https://DEINE-ADRESSE/?project=PRJ-12345678&view=bugs
-https://DEINE-ADRESSE/?project=PRJ-12345678&view=ideas
-https://DEINE-ADRESSE/?project=PRJ-12345678&view=history
 ```
 
-Ein natives Schema wie `projectlog://` kann eine iOS-PWA nicht registrieren. Apple Kurzbefehle verwendet deshalb die HTTPS-Adresse.
+Die fertigen URLs stehen innerhalb der App unter **Einstellungen → Kurzbefehle**.
 
-## Lokal testen
+## Lokal prüfen
 
 ```bash
 python3 -m http.server 4173
-```
-
-Danach `http://localhost:4173` öffnen.
-
-Automatisierte Prüfung:
-
-```bash
 npm test
-python3 tests/e2e.py
+node tests/workflow.mjs
+python3 tests/render_static_qa.py
+python3 tests/e2e_v32.py
 ```
+
+`e2e_v32.py` bündelt die echten ES-Module nur für den Test in eine isolierte Memory-Driver-Umgebung. Der Produktionscode bleibt unverändert und verwendet IndexedDB.
 
 ## Projektstruktur
 
 ```text
-index.html                    App-Shell und vier Top-Level-Tabs
-styles.css                    Apple-orientiertes responsives Designsystem
-src/app.js                    UI, Navigation und Benutzerworkflows
-src/domain.js                 Datenmodell, Validierung und Backup-Migration
-src/storage.js                IndexedDB-v2-Repository und Memory-Treiber
-src/events.js                 datensparsame Ereignisse und Verdichtung
-src/analytics.js              Projektgesundheit, Dashboard und Trenddaten
-src/chart.js                  zugängliches SVG-Verlaufsdiagramm
-src/presentation.js           deutsche Labels und semantische Darstellung
-src/icons.js                  konsistentes SVG-Iconset
-src/router.js                 sichere URL-Kommandos
-src/view-helpers.js           Formatierung und HTML-Escaping
-service-worker.js             versionierter Offline-Cache
-manifest.webmanifest          Installationsmetadaten und App-Shortcuts
-tests/                        Domänen-, Repository-, UI- und PWA-Tests
+index.html                App-Shell, zwei Root-Tabs und Dialogcontainer
+styles.css                konsistentes Apple-orientiertes Designsystem
+src/app.js                Workflowsteuerung und Ereignisbehandlung
+src/views.js              reine Ansichtsrenderer
+src/forms.js              kompakte gruppierte Editoren
+src/sheets.js             Compose-, Auswahl-, Filter- und Bestätigungssheets
+src/navigation.js         Root- und Push-Navigation
+src/materials.js          Eingang, Referenzen und Anhänge
+src/domain.js             Projekte, Bugs, Ideen und Backup-Schema
+src/storage.js            IndexedDB-v3-Repository und Memory-Treiber
+src/events.js             datensparsame Änderungshistorie
+src/presentation.js       deutsche Labels und semantische Darstellung
+src/icons.js              konsistentes SVG-Iconset
+src/router.js             sichere URL-Aktionen
+service-worker.js         versionierter Offline-Cache
+manifest.webmanifest      PWA-Metadaten und App-Shortcuts
+tests/                    Domänen-, Workflow-, UI- und Renderprüfungen
 ```
 
 ## Reale iPhone-Abnahme
 
-Die automatisierten Tests prüfen Datenmigration, Speicherung, Backup, statische Auslieferung, responsive Layouts und Kerninteraktionen. Auf dem Ziel-iPhone bleiben vier systemabhängige Punkte zu prüfen:
+Zusätzlich zu den automatisierten Prüfungen sollten auf dem Ziel-iPhone geprüft werden:
 
-- Installation aus Safari
-- iOS-Teilen-Menü für JSON-Backups
-- Offline-Neustart nach aktualisiertem Service Worker
-- Aufruf aus Apple Kurzbefehle
-
-
-## ProjectLog 3.1
-
-- schmalere und tiefer positionierte Zwei-Tab-Navigation
-- deutlicher aktive Auswahlfläche mit Apple-Lila Icon und Beschriftung
-- gefüllte aktive Navigationssymbole, reduzierte inaktive Symbole
-- kompaktere Projekt-, Eingangs- und Referenzzeilen
-- Projektbeschreibung vor den Inhaltsbereichen
-- ruhigere Typografie, Abstände und semantische Hervorhebungen
+- Fotoaufnahme und Mehrfachauswahl aus Fotos
+- Dateien-App und PDF-Vorschau
+- iOS-Share-Sheet für Referenzen und Backups
+- Speicherquota bei vielen großen Anhängen
+- Offline-Neustart nach dem Service-Worker-Update
+- VoiceOver und große Dynamic-Type-Einstellungen
