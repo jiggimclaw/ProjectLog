@@ -1,7 +1,7 @@
-import { icon } from './icons.js?v=3.2.0';
-import { tagMeta } from './presentation.js?v=3.2.0';
-import { escapeHtml } from './view-helpers.js?v=3.2.0';
-import { TAG_VALUES } from './domain.js?v=3.2.0';
+import { icon } from './icons.js?v=4.0.0';
+import { tagMeta } from './presentation.js?v=4.0.0';
+import { escapeHtml } from './view-helpers.js?v=4.0.0';
+import { TAG_VALUES } from './domain.js?v=4.0.0';
 
 function shell({ title, message = '', body = '', footer = '' }) {
   return `
@@ -25,17 +25,22 @@ export function actionSheet({ title, message = '', actions = [] }) {
   return shell({ title, message, body, footer });
 }
 
-export function composeSheet() {
-  return actionSheet({
-    title: 'Neuer Eingangseintrag',
-    message: 'Erst roh erfassen, später einem Projekt zuordnen.',
-    actions: [
-      { action: 'compose-note', label: 'Notiz', detail: 'Gedanke oder Konzeptfragment', iconName: 'document' },
-      { action: 'compose-link', label: 'Link', detail: 'URL mit eigener Notiz', iconName: 'link' },
-      { action: 'compose-image', label: 'Foto', detail: 'Aus Fotos, Dateien oder Kamera', iconName: 'photo' },
-      { action: 'compose-file', label: 'Datei', detail: 'PDF, Text, Markdown oder JSON', iconName: 'paperclip' },
-    ],
-  });
+export function quickCaptureSheet({ value = '' } = {}) {
+  const body = `<form id="sheet-form" class="quick-capture-form" data-purpose="quick-capture">
+    <label class="quick-capture-field">
+      <span class="visually-hidden">Gedanke, Link oder Notiz</span>
+      <textarea name="captureText" maxlength="8000" placeholder="Gedanke, Link oder Notiz …">${escapeHtml(value)}</textarea>
+    </label>
+    <div class="quick-capture-actions">
+      <button type="button" class="quick-capture-action" data-sheet-action="quick-capture-image">${icon('photo')}<span>Foto hinzufügen</span></button>
+      <button type="button" class="quick-capture-action" data-sheet-action="quick-capture-file">${icon('paperclip')}<span>Datei hinzufügen</span></button>
+    </div>
+    <div class="quick-capture-footer">
+      <button type="button" class="sheet-secondary" data-sheet-action="cancel">Abbrechen</button>
+      <button type="submit" class="sheet-primary">Festhalten</button>
+    </div>
+  </form>`;
+  return shell({ title: 'Festhalten', message: 'Text und Links werden automatisch erkannt.', body });
 }
 
 export function projectPickerSheet({ projects, selected = [], multiple = false, purpose = 'reference', title = 'Projekt auswählen' }) {

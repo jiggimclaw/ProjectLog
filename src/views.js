@@ -1,5 +1,5 @@
-import { calculateProjectHealth } from './analytics.js?v=3.2.0';
-import { icon } from './icons.js?v=3.2.0';
+import { calculateProjectHealth } from './analytics.js?v=4.0.0';
+import { icon } from './icons.js?v=4.0.0';
 import {
   bugSeverityMeta,
   bugStatusMeta,
@@ -9,9 +9,10 @@ import {
   projectPriorityMeta,
   projectStatusMeta,
   tagMeta,
-} from './presentation.js?v=3.2.0';
-import { currentView, isRootView } from './navigation.js?v=3.2.0';
-import { escapeHtml, formatDateTime, formatRelativeDay } from './view-helpers.js?v=3.2.0';
+} from './presentation.js?v=4.0.0';
+import { currentView, isRootView } from './navigation.js?v=4.0.0';
+import { escapeHtml, formatDateTime, formatRelativeDay } from './view-helpers.js?v=4.0.0';
+import { groupedList, projectSpine, toolbarCluster } from './ui/primitives.js?v=4.0.0';
 
 const materialMeta = Object.freeze({
   note: { label: 'Notiz', icon: 'document' },
@@ -80,25 +81,25 @@ export function renderHeader(state) {
 
   if (view.name === 'projects') {
     title = 'ProjectLog';
-    actions = `${buttonIcon('new-project', 'plus', 'Neues Projekt', 'primary')}${buttonIcon('open-global-menu', 'ellipsis', 'Mehr Optionen')}`;
+    actions = toolbarCluster(`${buttonIcon('new-project', 'plus', 'Neues Projekt', 'primary')}${buttonIcon('open-global-menu', 'ellipsis', 'Mehr Optionen')}`);
   } else if (view.name === 'inbox') {
     title = 'Eingang';
-    actions = `${buttonIcon('open-compose', 'plus', 'Neuer Eingangseintrag', 'primary')}${buttonIcon('open-global-menu', 'ellipsis', 'Mehr Optionen')}`;
+    actions = toolbarCluster(`${buttonIcon('open-compose', 'plus', 'Etwas festhalten', 'primary')}${buttonIcon('open-global-menu', 'ellipsis', 'Mehr Optionen')}`);
   } else {
     leading = buttonIcon('navigate-back', 'back', 'Zurück');
     if (view.name === 'project') {
       const project = projectById(state, view.params.projectId);
       title = project?.name ?? 'Projekt';
       subtitle = project ? projectHeaderSubtitle(project) : '';
-      actions = `${buttonIcon('toggle-favorite', project?.favorite ? 'pin-filled' : 'pin', 'Favorit umschalten', project?.favorite ? 'is-selected' : '')}${buttonIcon('open-project-menu', 'ellipsis', 'Projektoptionen')}`;
+      actions = buttonIcon('open-project-menu', 'ellipsis', 'Projektoptionen');
     } else if (view.name === 'bugs') {
       title = 'Bugs';
       subtitle = projectById(state, view.params.projectId)?.name ?? '';
-      actions = `${buttonIcon('open-bug-filter', 'sliders', 'Bugs filtern')}${buttonIcon('new-bug', 'plus', 'Neuer Bug', 'primary')}`;
+      actions = toolbarCluster(`${buttonIcon('open-bug-filter', 'sliders', 'Bugs filtern')}${buttonIcon('new-bug', 'plus', 'Neuer Bug', 'primary')}`);
     } else if (view.name === 'ideas') {
       title = 'Ideen';
       subtitle = projectById(state, view.params.projectId)?.name ?? '';
-      actions = `${buttonIcon('open-idea-filter', 'sliders', 'Ideen filtern')}${buttonIcon('new-idea', 'plus', 'Neue Idee', 'primary')}`;
+      actions = toolbarCluster(`${buttonIcon('open-idea-filter', 'sliders', 'Ideen filtern')}${buttonIcon('new-idea', 'plus', 'Neue Idee', 'primary')}`);
     } else if (view.name === 'project-references') {
       title = 'Referenzen';
       subtitle = projectById(state, view.params.projectId)?.name ?? '';
@@ -110,15 +111,15 @@ export function renderHeader(state) {
       const item = inboxById(state, view.params.inboxId);
       title = item?.title ?? 'Eingangseintrag';
       subtitle = item ? materialMeta[item.type].label : '';
-      actions = `${buttonIcon('edit-inbox-item', 'edit', 'Eingangseintrag bearbeiten')}${buttonIcon('open-inbox-menu', 'ellipsis', 'Weitere Aktionen')}`;
+      actions = toolbarCluster(`${buttonIcon('edit-inbox-item', 'edit', 'Eingangseintrag bearbeiten')}${buttonIcon('open-inbox-menu', 'ellipsis', 'Weitere Aktionen')}`);
     } else if (view.name === 'reference-detail') {
       const reference = referenceById(state, view.params.referenceId);
       title = reference?.title ?? 'Referenz';
       subtitle = reference ? materialMeta[reference.type].label : '';
-      actions = `${buttonIcon('edit-reference', 'edit', 'Referenz bearbeiten')}${buttonIcon('open-reference-menu', 'ellipsis', 'Weitere Aktionen')}`;
+      actions = toolbarCluster(`${buttonIcon('edit-reference', 'edit', 'Referenz bearbeiten')}${buttonIcon('open-reference-menu', 'ellipsis', 'Weitere Aktionen')}`);
     } else if (view.name === 'library') {
-      title = 'Bibliothek';
-      actions = buttonIcon('open-library-filter', 'sliders', 'Bibliothek filtern');
+      title = 'Referenzen';
+      actions = buttonIcon('open-library-filter', 'sliders', 'Referenzen filtern');
     } else if (view.name === 'archive') {
       title = 'Archiv';
     } else if (view.name === 'settings') {
@@ -128,14 +129,15 @@ export function renderHeader(state) {
     }
   }
 
+  const project = view.name === 'project' ? projectById(state, view.params.projectId) : null;
+  const titleGroup = project
+    ? `<div class="project-title-with-spine">${projectSpine(project.priority)}<div class="header-title-group"><h1>${escapeHtml(title)}</h1>${subtitle ? `<p class="header-subtitle">${escapeHtml(subtitle)}</p>` : ''}</div></div>`
+    : `<div class="header-title-group"><h1>${escapeHtml(title)}</h1>${subtitle ? `<p class="header-subtitle">${escapeHtml(subtitle)}</p>` : ''}</div>`;
   return `
     <div class="header-row ${root ? 'root-header' : 'detail-header'}">
       <div class="header-leading">${leading}</div>
-      <div class="header-title-group">
-        <h1>${escapeHtml(title)}</h1>
-        ${subtitle ? `<p class="header-subtitle">${escapeHtml(subtitle)}</p>` : ''}
-      </div>
-      <div class="toolbar-actions">${actions}</div>
+      ${titleGroup}
+      ${actions.startsWith('<div class="toolbar-actions') ? actions : `<div class="toolbar-actions">${actions}</div>`}
     </div>`;
 }
 
@@ -158,7 +160,7 @@ function sectionHeading(title, accessory = '') {
 
 function groupedSection(title, content, accessory = '') {
   if (!content) return '';
-  return `<section class="content-section">${sectionHeading(title, accessory)}<div class="grouped-list">${content}</div></section>`;
+  return `<section class="content-section">${sectionHeading(title, accessory)}${groupedList(content)}</section>`;
 }
 
 function priorityClass(priority) {
@@ -180,7 +182,8 @@ function projectMeta(state, project) {
 
 function projectRow(state, project) {
   const meta = projectMeta(state, project);
-  return `<button class="list-row project-row priority-rail ${priorityClass(project.priority)}" type="button" data-action="open-project" data-id="${escapeHtml(project.id)}">
+  return `<button class="list-row project-row" type="button" data-action="open-project" data-id="${escapeHtml(project.id)}">
+    ${projectSpine(project.priority)}
     <span class="row-main">
       <span class="row-title-line"><strong>${escapeHtml(project.name)}</strong>${project.favorite ? `<span class="favorite-mark">${icon('pin-filled')}</span>` : ''}</span>
       <span class="row-meta ${escapeHtml(meta.tone)}">${escapeHtml(meta.text)}</span>
@@ -212,21 +215,19 @@ function renderProjects(state) {
     });
   }
   const query = state.search.projects.trim().toLocaleLowerCase('de-DE');
-  const projects = [...state.projects]
+  const projects = state.projects
     .filter((project) => project.status !== 'archived')
-    .filter((project) => matchesProject(state, project, query))
+    .filter((project) => matchesProject(state, project, query));
+  const favorites = projects
+    .filter((project) => project.favorite)
     .sort((a, b) => lastProjectActivity(state, b).localeCompare(lastProjectActivity(state, a)));
-  const favorites = projects.filter((project) => project.favorite);
-  const attention = projects.filter((project) => !project.favorite && ['critical', 'major'].includes(projectMeta(state, project).tone));
-  const active = projects.filter((project) => !project.favorite && !attention.includes(project) && ['active', 'paused', 'completed'].includes(project.status));
-  const planned = projects.filter((project) => project.status === 'planned');
-  const groups = [
-    ['Favoriten', favorites],
-    ['Benötigt Aufmerksamkeit', attention],
-    ['Aktiv', active],
-    ['Geplant', planned],
-  ].filter(([, items]) => items.length);
-  return `${searchField('project-search', 'Projekte durchsuchen', state.search.projects)}${groups.map(([title, items]) => groupedSection(title, items.map((project) => projectRow(state, project)).join(''))).join('')}${!groups.length ? '<p class="empty-copy">Keine passenden Projekte.</p>' : ''}`;
+  const remaining = projects
+    .filter((project) => !project.favorite)
+    .sort((a, b) => a.name.localeCompare(b.name, 'de-DE'));
+  return `${searchField('project-search', 'Projekte durchsuchen', state.search.projects)}
+    ${groupedSection('Favoriten', favorites.map((project) => projectRow(state, project)).join(''))}
+    ${groupedSection('Projekte', remaining.map((project) => projectRow(state, project)).join(''))}
+    ${!favorites.length && !remaining.length ? '<p class="empty-copy">Keine passenden Projekte.</p>' : ''}`;
 }
 
 function materialIcon(item, state) {
@@ -291,7 +292,7 @@ function criticalAlert(state, project) {
   const critical = projectBugs(state, project.id).filter((bug) => bug.severity === 'critical' && !['resolved', 'rejected'].includes(bug.status));
   if (!critical.length) return '';
   const copy = critical.length === 1 ? critical[0].title : `${critical.length} kritische Bugs sind offen.`;
-  return `<button class="critical-alert" type="button" data-action="open-project-bugs"><span>${icon('warning')}</span><span><strong>Benötigt Aufmerksamkeit</strong><small>${escapeHtml(copy)}</small></span><span class="row-chevron">${icon('chevron')}</span></button>`;
+  return `<button class="project-alert-row" type="button" data-action="open-project-bugs">${projectSpine('normal')} ${icon('warning')}<span><strong>${critical.length === 1 ? '1 kritischer Bug' : `${critical.length} kritische Bugs`}</strong><small>${escapeHtml(copy)}</small></span><span class="row-chevron">${icon('chevron')}</span></button>`;
 }
 
 function detailLinkRow({ action, label, count = '', iconName, tone = '' }) {
@@ -320,16 +321,16 @@ function renderProject(state, projectId) {
   const bugs = projectBugs(state, project.id);
   const ideas = projectIdeas(state, project.id);
   const references = projectReferences(state, project.id);
-  const recent = [...bugs, ...ideas].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 3);
+  const eventCount = state.events.filter((event) => event.projectId === project.id).length;
   return `${criticalAlert(state, project)}
     <section class="content-section project-description-section">${sectionHeading('Beschreibung')}<div class="plain-content"><p>${escapeHtml(project.description || 'Noch keine Projektbeschreibung.')}</p></div></section>
     ${groupedSection('Inhalte', [
       detailLinkRow({ action: 'open-project-bugs', label: 'Bugs', count: bugs.length, iconName: 'bug', tone: bugs.some((bug) => bug.severity === 'critical' && !['resolved', 'rejected'].includes(bug.status)) ? 'semantic-critical' : '' }),
       detailLinkRow({ action: 'open-project-ideas', label: 'Ideen', count: ideas.length, iconName: 'bulb' }),
       detailLinkRow({ action: 'open-project-references', label: 'Referenzen', count: references.length, iconName: 'link' }),
-      detailLinkRow({ action: 'open-project-history', label: 'Verlauf', count: state.events.filter((event) => event.projectId === project.id).length, iconName: 'history' }),
+      detailLinkRow({ action: 'open-project-history', label: 'Verlauf', count: eventCount, iconName: 'history' }),
     ].join(''))}
-    ${recent.length ? groupedSection('Zuletzt geändert', recent.map(recentEntryRow).join(''), relative(lastProjectActivity(state, project))) : ''}`;
+    ${eventCount ? groupedSection('Letzte Änderungen', detailLinkRow({ action: 'open-project-history', label: `${eventCount} ${eventCount === 1 ? 'Ereignis anzeigen' : 'Ereignisse anzeigen'}`, iconName: 'history' }), relative(lastProjectActivity(state, project))) : ''}`;
 }
 
 function neutralTags(tags) {
@@ -381,7 +382,7 @@ function referenceRow(reference, state) {
 
 function renderProjectReferences(state, projectId) {
   const items = projectReferences(state, projectId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  return items.length ? `<div class="grouped-list">${items.map((item) => referenceRow(item, state)).join('')}</div>` : emptyState({ iconName: 'link', title: 'Keine Referenzen', copy: 'Ordne vorhandene Materialien aus der Bibliothek zu oder verarbeite einen Eingangseintrag als Referenz.', action: 'assign-existing-reference', actionLabel: 'Referenz zuordnen' });
+  return items.length ? `<div class="grouped-list">${items.map((item) => referenceRow(item, state)).join('')}</div>` : emptyState({ iconName: 'link', title: 'Keine Referenzen', copy: 'Ordne vorhandene Materialien aus den Referenzen zu oder verarbeite einen Eingangseintrag als Referenz.', action: 'assign-existing-reference', actionLabel: 'Referenz zuordnen' });
 }
 
 function historyEntityTitle(state, event) {
@@ -399,7 +400,7 @@ function eventDescription(event) {
 function renderHistory(state, projectId) {
   const events = state.events.filter((event) => event.projectId === projectId).sort((a, b) => b.timestamp.localeCompare(a.timestamp));
   if (!events.length) return emptyState({ iconName: 'history', title: 'Noch kein Verlauf', copy: 'Relevante Status-, Bewertungs- und Tagänderungen erscheinen hier.' });
-  return `<ol class="history-list">${events.map((event) => `<li><time>${escapeHtml(formatDateTime(event.timestamp))}</time><div><strong>${escapeHtml(eventDescription(event))}</strong><span>${escapeHtml(historyEntityTitle(state, event))}</span></div></li>`).join('')}</ol>`;
+  return `<ol class="history-list">${events.map((event) => `<li class="history-spine">${projectSpine(projectById(state, projectId)?.priority ?? 'normal')}<div><time>${escapeHtml(formatDateTime(event.timestamp))}</time><strong>${escapeHtml(eventDescription(event))}</strong><span>${escapeHtml(historyEntityTitle(state, event))}</span></div></li>`).join('')}</ol>`;
 }
 
 function renderMaterialPreview(item, state) {
@@ -439,7 +440,7 @@ function renderReferenceDetail(state, referenceId) {
   if (!reference) return emptyState({ iconName: 'link', title: 'Referenz nicht gefunden', copy: 'Die Referenz wurde möglicherweise entfernt.' });
   const projectRows = reference.projectIds.map((id) => {
     const project = projectById(state, id);
-    return project ? `<button class="list-row compact-row" type="button" data-action="open-project" data-id="${escapeHtml(id)}"><span class="row-main"><strong>${escapeHtml(project.name)}</strong></span><span class="row-chevron">${icon('chevron')}</span></button>` : '';
+    return project ? `<button class="list-row compact-row reference-project-row" type="button" data-action="open-project" data-id="${escapeHtml(id)}">${projectSpine(project.priority)}<span class="row-main"><strong>${escapeHtml(project.name)}</strong></span><span class="row-chevron">${icon('chevron')}</span></button>` : '';
   }).join('');
   return `${renderMaterialPreview(reference, state)}${groupedSection('Details', materialInfoRows(reference))}${groupedSection('Projekte', projectRows)}<div class="detail-button-stack"><button class="secondary-wide-action" type="button" data-action="assign-reference-projects">Projektzuordnung ändern</button>${reference.type === 'link' ? '<button class="secondary-wide-action" type="button" data-action="open-reference-link">Link öffnen</button>' : ''}</div>`;
 }
@@ -452,7 +453,7 @@ function renderLibrary(state) {
     .filter((item) => filter === 'all' || item.type === filter)
     .filter((item) => matchesMaterial(item, query))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  return `${searchField('library-search', 'Bibliothek durchsuchen', state.search.library)}<div class="result-summary"><span>${escapeHtml(filterLabel('library', filter))}</span><strong>${items.length}</strong></div>${items.length ? `<div class="grouped-list">${items.map((item) => referenceRow(item, state)).join('')}</div>` : `<p class="empty-copy">Keine passenden Referenzen.</p>`}`;
+  return `${searchField('library-search', 'Referenzen durchsuchen', state.search.library)}<div class="result-summary"><span>${escapeHtml(filterLabel('library', filter))}</span><strong>${items.length}</strong></div>${items.length ? `<div class="grouped-list">${items.map((item) => referenceRow(item, state)).join('')}</div>` : `<p class="empty-copy">Keine passenden Referenzen.</p>`}`;
 }
 
 function renderArchive(state) {
@@ -479,7 +480,7 @@ function renderSettings(state) {
   return `${groupedSection('Daten & Backup', [
     settingsRow({ action: 'share-backup', iconName: 'export', title: 'Backup exportieren', subtitle: 'Projekte, Eingang, Referenzen und Anhänge' }),
     settingsRow({ action: 'choose-import', iconName: 'import', title: 'Backup importieren', subtitle: 'Bestehenden lokalen Bestand ersetzen' }),
-  ].join(''))}${groupedSection('Automation', settingsRow({ action: 'open-shortcuts', iconName: 'link', title: 'Kurzbefehle', subtitle: 'Sichere URLs für schnelle Erfassung' }))}${groupedSection('Entwickleroptionen', settingsRow({ action: 'load-demo', iconName: 'sparkles', title: 'Demodaten hinzufügen', subtitle: 'Testportfolio für die Oberfläche' }))}${groupedSection('Lokale Daten', settingsRow({ action: 'request-clear-all', iconName: 'trash', title: 'Alle lokalen Daten löschen', subtitle: 'Kann nicht rückgängig gemacht werden', destructive: true }))}${groupedSection('Über ProjectLog', staticSettingsRow({ iconName: 'info', title: 'ProjectLog 3.2.0', subtitle: 'Lokal · ohne Konto · ohne Telemetrie', accessory: formatBytes(state.attachments.reduce((sum, item) => sum + item.size, 0)) }))}`;
+  ].join(''))}${groupedSection('Automation', settingsRow({ action: 'open-shortcuts', iconName: 'link', title: 'Kurzbefehle', subtitle: 'Sichere URLs für schnelle Erfassung' }))}${groupedSection('Entwickleroptionen', settingsRow({ action: 'load-demo', iconName: 'sparkles', title: 'Demodaten hinzufügen', subtitle: 'Testportfolio für die Oberfläche' }))}${groupedSection('Lokale Daten', settingsRow({ action: 'request-clear-all', iconName: 'trash', title: 'Alle lokalen Daten löschen', subtitle: 'Kann nicht rückgängig gemacht werden', destructive: true }))}${groupedSection('Über ProjectLog', staticSettingsRow({ iconName: 'info', title: 'ProjectLog 4.0.0', subtitle: 'Lokal · ohne Konto · ohne Telemetrie', accessory: formatBytes(state.attachments.reduce((sum, item) => sum + item.size, 0)) }))}`;
 }
 
 function renderShortcuts(state) {
@@ -511,12 +512,12 @@ export function renderMain(state) {
   return emptyState({ iconName: 'info', title: 'Ansicht nicht verfügbar', copy: 'Kehre zur Projektübersicht zurück.' });
 }
 
-export function tabBarVisible(state) {
-  return isRootView(state.navigation);
+export function tabBarVisible() {
+  return true;
 }
 
 export function activeRootTab(state) {
-  return currentView(state.navigation).name === 'inbox' ? 'inbox' : 'projects';
+  return state.navigation?.stack?.[0]?.name === 'inbox' ? 'inbox' : 'projects';
 }
 
 export function currentProjectForView(state) {

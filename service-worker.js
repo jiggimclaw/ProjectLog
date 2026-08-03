@@ -1,10 +1,13 @@
-const CACHE_NAME = 'projectlog-shell-v3-2-0';
-const VERSION = '3.2.0';
+const CACHE_NAME = 'projectlog-shell-v4-0-0';
+const VERSION = '4.0.0';
 const versioned = (path) => `${path}?v=${VERSION}`;
 const APP_SHELL = [
   './',
   './index.html',
   versioned('./styles.css'),
+  versioned('./src/design/tokens.css'),
+  versioned('./src/design/components.css'),
+  versioned('./src/ui/primitives.js'),
   versioned('./manifest.webmanifest'),
   versioned('./src/app.js'),
   versioned('./src/analytics.js'),

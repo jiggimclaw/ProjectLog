@@ -1,63 +1,91 @@
-# ProjectLog 3.2
+# ProjectLog 4.0
 
-ProjectLog ist eine lokale, offlinefähige Projektzentrale für private Projekte. Die PWA benötigt kein Konto und kein Backend. Projekte, Bugs, Ideen, Eingangsmaterialien, Referenzen und Anhänge werden ausschließlich lokal gespeichert.
+ProjectLog ist ein lokales, offlinefähiges Projektjournal für eine einzelne Person. Die PWA benötigt kein Konto und kein Backend. Projekte, Bugs, Ideen, Eingangsmaterialien, Referenzen, Anhänge und Verlauf werden ausschließlich lokal gespeichert.
 
-## Grundstruktur
+## Kernaufgabe
 
-Die App besitzt nur zwei Hauptbereiche:
+ProjectLog unterstützt einen klaren Ablauf:
+
+```text
+Festhalten → zuordnen → Projektzustand verstehen → weiterentwickeln
+```
+
+Die App besitzt zwei Hauptbereiche:
 
 - **Projekte** — strukturierte Arbeit mit Bugs, Ideen, Referenzen und Verlauf
-- **Eingang** — rohe Notizen, Links, Bilder und Dateien vor ihrer Zuordnung
+- **Eingang** — noch nicht zugeordnete Gedanken, Links, Bilder und Dateien
 
-Bibliothek, Archiv, Backup und Einstellungen sind sekundäre Ansichten und erscheinen deshalb nicht in der Tab-Bar.
+**Referenzen**, Archiv, Backup und Einstellungen sind sekundäre Ansichten. Die Zwei-Tab-Bar hält den jeweiligen Hauptkontext Projekte oder Eingang stabil.
 
-## Eingang und Referenzen
+## Designsystem 4.0
 
-Ein Eingangseintrag kann erfasst werden als:
+ProjectLog 4.0 trennt vertraute iOS-Bedienmuster von einer eigenen ProjectLog-Identität:
 
-- Notiz
-- Link
-- Foto oder Bild
-- Datei: PDF, Text, Markdown oder JSON
+- stabile Projektliste mit **Favoriten** und **Projekte**
+- keine automatisch springenden Projektbereiche
+- **Project Spine** als wiederkehrende Projektachse für Priorität und Zugehörigkeit
+- Quick Capture mit einem einzigen Einstiegspunkt
+- reduzierte Toolbars und gruppierte Aktionen
+- ruhige Zwei-Tab-Navigation
+- getrennte Farbrollen für Interaktion, Projektpriorität und Warnungen
+- gruppierte Listen statt einzelner Karten
+- Systemschrift für Inhalte, `ui-rounded` nur für die Marke ProjectLog
+- technische Daten in einer Monospace-Rolle
+- Light Mode, Dark Mode, erhöhter Kontrast und reduzierte Bewegung
 
-Anschließend kann er weiterverarbeitet werden als:
+Die App bleibt technisch eine PWA. Native SwiftUI- oder Liquid-Glass-APIs werden nicht simuliert; CSS-Materialien und SVG-Symbole besitzen robuste Fallbacks.
+
+## Project Spine
+
+Die Project Spine ist das charakteristische Gestaltungselement von ProjectLog. Eine schmale vertikale Achse verbindet:
+
+- Projektzeilen
+- Projekttitel
+- Projektzuordnungen von Referenzen
+- Verlaufseinträge
+- kritische Projekthinweise
+
+Ihre Farbe codiert die Projektpriorität unabhängig von Apple-Lila und semantischen Warnfarben.
+
+## Quick Capture
+
+Im Eingang öffnet **Festhalten** ein einziges Erfassungsfeld:
+
+- eingegebene URL → Link
+- übriger Text → Notiz
+- Foto hinzufügen → Bildmaterial
+- Datei hinzufügen → PDF, Text, Markdown oder JSON
+
+Der erste Textabsatz beziehungsweise die erste Zeile wird als Titel verwendet. Material kann anschließend weiterverarbeitet werden als:
 
 - neues Projekt
-- Idee eines Projekts
 - Bug eines Projekts
+- Idee eines Projekts
 - Referenz für eines oder mehrere Projekte
 
-Sobald eine Zuordnung erfolgt, verschwindet das Material aus dem Eingang. Links, Bilder und Dateien bleiben bei einer Umwandlung in Projekt, Idee oder Bug zusätzlich als verknüpfte Referenz erhalten. Der Anhang wird dabei nicht dupliziert.
+Nach erfolgreicher Zuordnung verschwindet das Material aus dem Eingang. Links, Bilder und Dateien bleiben bei einer Umwandlung in Projekt, Bug oder Idee zusätzlich als verknüpfte Referenz erhalten. Anhänge werden nicht pro Projekt dupliziert.
 
-## Projekte
+## Projektansicht
 
-Projektstatus:
+Die Projektübersicht zeigt stabil:
 
-- Geplant
-- Aktiv
-- Pausiert
-- Abgeschlossen
-- Archiviert
+1. Favoriten
+2. alle übrigen Projekte
 
-Priorität:
+Warnungen erscheinen innerhalb der jeweiligen Projektzeile, statt Projekte in einen dynamischen Bereich „Benötigt Aufmerksamkeit“ zu verschieben.
 
-- Niedrig
-- Normal
-- Hoch
-- Strategisch
+Ein Projektdetail zeigt:
 
-Ein Projektdetail zeigt in dieser Reihenfolge:
-
-1. genau einen kritischen Hinweis, sofern erforderlich
+1. einen kompakten kritischen Hinweis, sofern erforderlich
 2. Beschreibung
 3. Bugs, Ideen, Referenzen und Verlauf
-4. letzte Änderungen
+4. einen kompakten Zugang zu letzten Änderungen
 
-Technische IDs erscheinen nicht in der normalen Oberfläche.
+Favorit, Bearbeiten und Archivieren liegen im Projektmenü. Technische IDs erscheinen nicht in der normalen Oberfläche.
 
 ## Datenspeicherung
 
-ProjectLog verwendet ein einheitliches IndexedDB-Schema für:
+ProjectLog verwendet IndexedDB für:
 
 - Projekte
 - Bugs
@@ -67,38 +95,38 @@ ProjectLog verwendet ein einheitliches IndexedDB-Schema für:
 - Anhänge
 - Ereignisse und Monatsverdichtungen
 
-Anhänge sind auf **12 MB pro Datei** begrenzt. Ereignisse protokollieren nur relevante semantische Änderungen und werden nach zwölf Monaten zu Monatswerten verdichtet. Es gibt keine Telemetrie.
+Anhänge sind auf **12 MB pro Datei** begrenzt. Das Änderungsprotokoll erfasst nur relevante semantische Änderungen und wird nach zwölf Monaten zu Monatswerten verdichtet. Es gibt keine Telemetrie.
 
 ## Backup und Migration
 
-ProjectLog 3.2 verwendet:
+ProjectLog 4.0 verwendet weiterhin das kompatible Schema:
 
 ```text
 projectlog.backup.v3
 ```
 
-Backups enthalten auch Eingang, Referenzen und Anhänge. Backups aus ProjectLog 1.x und 2.x sowie bestehende ProjectLog-3.1-Daten werden beim Import beziehungsweise beim ersten Start migriert.
+Backups enthalten Projekte, Bugs, Ideen, Eingang, Referenzen, Anhänge, Verlauf und Einstellungen. Backups aus ProjectLog 1.x und 2.x sowie lokale ProjectLog-3.x-Daten werden migriert.
 
 Vor einem Update sollte unter **Einstellungen → Backup exportieren** eine Sicherung erstellt werden.
 
 ## Installation über GitHub Pages
 
-1. Das Updatepaket entpacken.
-2. Den **Inhalt** des entpackten Ordners in das GitHub-Repository hochladen und vorhandene Dateien ersetzen.
+1. Updatepaket entpacken.
+2. Den **Inhalt** des entpackten Ordners in die oberste Ebene des GitHub-Repositories hochladen und vorhandene Dateien ersetzen.
 3. Unter **Settings → Pages** den Branch `main` und `/ (root)` veröffentlichen.
 4. Die Pages-Adresse in Safari öffnen.
 5. **Teilen → Zum Home-Bildschirm → Hinzufügen** wählen.
 6. ProjectLog einmal online starten, damit die Offline-App-Shell gespeichert wird.
 
-ProjectLog 3.2 verwendet den Cache-Namen:
+ProjectLog 4.0 verwendet den Cache-Namen:
 
 ```text
-projectlog-shell-v3-2-0
+projectlog-shell-v4-0-0
 ```
 
 ## Apple Kurzbefehle
 
-Die URL-Aktionen öffnen nur sichere Ansichten oder Erfassungsformulare. Sie löschen oder importieren nichts automatisch.
+Die URL-Aktionen öffnen nur sichere Ansichten oder Erfassungsformulare:
 
 ```text
 https://DEINE-ADRESSE/?action=new-project
@@ -106,40 +134,42 @@ https://DEINE-ADRESSE/?action=new-bug&project=PRJ-12345678&title=Kurztitel
 https://DEINE-ADRESSE/?action=new-idea&project=PRJ-12345678&title=Kurztitel
 ```
 
-Die fertigen URLs stehen innerhalb der App unter **Einstellungen → Kurzbefehle**.
+Die fertigen URLs stehen in der App unter **Einstellungen → Kurzbefehle**.
 
 ## Lokal prüfen
 
 ```bash
-python3 -m http.server 4173
 npm test
 node tests/workflow.mjs
 python3 tests/render_static_qa.py
-python3 tests/e2e_v32.py
+python3 tests/render_large_text_qa.py
+python3 tests/e2e_v40.py
 ```
 
-`e2e_v32.py` bündelt die echten ES-Module nur für den Test in eine isolierte Memory-Driver-Umgebung. Der Produktionscode bleibt unverändert und verwendet IndexedDB.
+`e2e_v40.py` bündelt die echten ES-Module ausschließlich für eine isolierte Browserprüfung mit Memory-Datentreiber. Der Produktionscode verwendet IndexedDB.
 
 ## Projektstruktur
 
 ```text
-index.html                App-Shell, zwei Root-Tabs und Dialogcontainer
-styles.css                konsistentes Apple-orientiertes Designsystem
-src/app.js                Workflowsteuerung und Ereignisbehandlung
-src/views.js              reine Ansichtsrenderer
-src/forms.js              kompakte gruppierte Editoren
-src/sheets.js             Compose-, Auswahl-, Filter- und Bestätigungssheets
-src/navigation.js         Root- und Push-Navigation
-src/materials.js          Eingang, Referenzen und Anhänge
-src/domain.js             Projekte, Bugs, Ideen und Backup-Schema
-src/storage.js            IndexedDB-v3-Repository und Memory-Treiber
-src/events.js             datensparsame Änderungshistorie
-src/presentation.js       deutsche Labels und semantische Darstellung
-src/icons.js              konsistentes SVG-Iconset
-src/router.js             sichere URL-Aktionen
-service-worker.js         versionierter Offline-Cache
-manifest.webmanifest      PWA-Metadaten und App-Shortcuts
-tests/                    Domänen-, Workflow-, UI- und Renderprüfungen
+index.html                         App-Shell, Root-Tabs und Dialogcontainer
+styles.css                         Feature- und Layoutstile
+src/design/tokens.css              Farben, Typografie, Abstände und Materialtokens
+src/design/components.css          Project Spine, Navigation und UI-Primitiven
+src/ui/primitives.js               wiederverwendbare gruppierte Listen und Spines
+src/app.js                         Workflowsteuerung und Ereignisbehandlung
+src/views.js                       Ansichtsrenderer
+src/forms.js                       kompakte Editoren
+src/sheets.js                      Quick Capture, Auswahl-, Filter- und Bestätigungssheets
+src/navigation.js                  Root- und Push-Navigation
+src/materials.js                   Eingang, Referenzen und Anhänge
+src/domain.js                      Projekte, Bugs, Ideen und Backup-Schema
+src/storage.js                     IndexedDB-Repository und Memory-Treiber
+src/events.js                      datensparsame Änderungshistorie
+src/presentation.js                deutsche Labels und semantische Darstellung
+src/icons.js                       konsistentes SVG-Iconset
+service-worker.js                  versionierter Offline-Cache
+manifest.webmanifest               PWA-Metadaten und App-Shortcuts
+tests/                             Domänen-, Workflow-, Render- und Interaktionstests
 ```
 
 ## Reale iPhone-Abnahme
@@ -151,4 +181,5 @@ Zusätzlich zu den automatisierten Prüfungen sollten auf dem Ziel-iPhone geprü
 - iOS-Share-Sheet für Referenzen und Backups
 - Speicherquota bei vielen großen Anhängen
 - Offline-Neustart nach dem Service-Worker-Update
-- VoiceOver und große Dynamic-Type-Einstellungen
+- VoiceOver
+- sehr große Systemeinstellungen für Text

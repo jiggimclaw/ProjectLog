@@ -1,4 +1,4 @@
-import { TAG_VALUES } from './domain.js?v=3.2.0';
+import { TAG_VALUES } from './domain.js?v=4.0.0';
 import {
   bugSeverityMeta,
   bugStatusMeta,
@@ -7,9 +7,9 @@ import {
   projectPriorityMeta,
   projectStatusMeta,
   tagMeta,
-} from './presentation.js?v=3.2.0';
-import { escapeHtml, optionList } from './view-helpers.js?v=3.2.0';
-import { icon } from './icons.js?v=3.2.0';
+} from './presentation.js?v=4.0.0';
+import { escapeHtml, optionList } from './view-helpers.js?v=4.0.0';
+import { icon } from './icons.js?v=4.0.0';
 
 function textField({ id, name, label, value = '', placeholder = '', max = 160, required = false, type = 'text' }) {
   return `<label class="form-row text-form-row" for="${escapeHtml(id)}"><span>${escapeHtml(label)}</span><input id="${escapeHtml(id)}" name="${escapeHtml(name)}" type="${escapeHtml(type)}" maxlength="${max}" value="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}" ${required ? 'required' : ''} autocomplete="off"></label>`;

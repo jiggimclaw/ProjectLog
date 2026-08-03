@@ -1,13 +1,13 @@
-import { buildBackupFilename } from './backup.js?v=3.2.0';
-import { createBug, createIdea, createProject, updateEntity } from './domain.js?v=3.2.0';
-import { editorTitle, renderEditorFields, selectedTagsFromEditor } from './forms.js?v=3.2.0';
-import { icon } from './icons.js?v=3.2.0';
+import { buildBackupFilename } from './backup.js?v=4.0.0';
+import { createBug, createIdea, createProject, updateEntity } from './domain.js?v=4.0.0';
+import { editorTitle, renderEditorFields, selectedTagsFromEditor } from './forms.js?v=4.0.0';
+import { icon } from './icons.js?v=4.0.0';
 import {
   createAttachment,
   createInboxItem,
   createReference,
   updateMaterial,
-} from './materials.js?v=3.2.0';
+} from './materials.js?v=4.0.0';
 import {
   activeRootTab,
   currentInboxForView,
@@ -16,7 +16,7 @@ import {
   renderHeader,
   renderMain,
   tabBarVisible,
-} from './views.js?v=3.2.0';
+} from './views.js?v=4.0.0';
 import {
   createNavigationState,
   currentView,
@@ -24,20 +24,20 @@ import {
   pushView,
   replaceView,
   resetRootView,
-} from './navigation.js?v=3.2.0';
-import { parseLaunchCommand } from './router.js?v=3.2.0';
+} from './navigation.js?v=4.0.0';
+import { parseLaunchCommand } from './router.js?v=4.0.0';
 import {
   actionSheet,
-  composeSheet,
+  quickCaptureSheet,
   confirmSheet,
   filterSheet,
   projectPickerSheet,
   tagPickerSheet,
-} from './sheets.js?v=3.2.0';
-import { ProjectLogRepository } from './storage.js?v=3.2.0';
-import { escapeHtml } from './view-helpers.js?v=3.2.0';
+} from './sheets.js?v=4.0.0';
+import { ProjectLogRepository } from './storage.js?v=4.0.0';
+import { escapeHtml } from './view-helpers.js?v=4.0.0';
 
-export const APP_VERSION = '3.2.0';
+export const APP_VERSION = '4.0.0';
 
 const repository = new ProjectLogRepository();
 const LEGACY_EXTRAS_KEY = 'projectlog.extras.v3';
@@ -164,10 +164,10 @@ async function migrateLegacyExtras() {
 
 function syncTabBar() {
   const visible = tabBarVisible(state);
+  const secondary = state.navigation.stack.length > 1;
   nav.hidden = !visible;
   appShell.classList.toggle('has-root-tabs', visible);
-  appShell.classList.toggle('has-secondary-view', !visible);
-  if (!visible) return;
+  appShell.classList.toggle('has-secondary-view', secondary);
   const active = activeRootTab(state);
   for (const button of nav.querySelectorAll('[data-nav]')) {
     const selected = button.dataset.nav === active;
@@ -228,7 +228,7 @@ function openGlobalMenu() {
   openSheet(actionSheet({
     title: 'ProjectLog',
     actions: [
-      { action: 'go-library', label: 'Bibliothek', detail: 'Alle verarbeiteten Referenzen', iconName: 'link' },
+      { action: 'go-library', label: 'Referenzen', detail: 'Alle verarbeiteten Materialien', iconName: 'link' },
       { action: 'go-archive', label: 'Archiv', detail: 'Archivierte Projekte und Referenzen', iconName: 'archive' },
       { action: 'go-settings', label: 'Einstellungen', detail: 'Backup, Kurzbefehle und lokale Daten', iconName: 'gear' },
     ],
@@ -353,13 +353,46 @@ async function saveEditor(formData) {
   showToast('Gesichert.');
 }
 
+function quickCaptureKind(value) {
+  return /^https?:\/\//i.test(value.trim()) ? 'link' : 'note';
+}
+
+function quickCaptureTitle(value, type) {
+  if (type === 'link') {
+    try { return new URL(value.trim()).hostname.replace(/^www\./, '').slice(0, 160); }
+    catch { return value.trim().slice(0, 160); }
+  }
+  return value.trim().split(/\r?\n/).find(Boolean)?.slice(0, 160) ?? 'Neue Notiz';
+}
+
+async function saveQuickCapture(value) {
+  const normalized = value.trim();
+  if (!normalized) throw new Error('Gib einen Gedanken, Link oder eine Notiz ein.');
+  const type = quickCaptureKind(normalized);
+  const title = quickCaptureTitle(normalized, type);
+  const body = type === 'note' ? normalized.split(/\r?\n/).slice(1).join('\n').trim() : '';
+  const item = createInboxItem({
+    type,
+    title,
+    body,
+    url: type === 'link' ? normalized : '',
+    tags: [],
+  }, { now: new Date().toISOString() });
+  await repository.saveInboxItem(item);
+  closeSheet();
+  await refresh({ renderView: false });
+  state.navigation = pushView(createNavigationState('inbox'), 'inbox-detail', { inboxId: item.id });
+  render();
+  showToast(type === 'link' ? 'Link im Eingang gesichert.' : 'Notiz im Eingang gesichert.');
+}
+
 function openTagPicker() {
   captureEditorDraft();
   openSheet(tagPickerSheet({ selected: state.editor.tags }), { type: 'tag-picker' });
 }
 
 function openCompose() {
-  openSheet(composeSheet(), { type: 'compose' });
+  openSheet(quickCaptureSheet(), { type: 'quick-capture' });
 }
 
 function openProjectMenu() {
@@ -371,6 +404,7 @@ function openProjectMenu() {
       { action: 'project-new-bug', label: 'Neuer Bug', iconName: 'bug' },
       { action: 'project-new-idea', label: 'Neue Idee', iconName: 'bulb' },
       { action: 'project-assign-reference', label: 'Referenz zuordnen', iconName: 'link' },
+      { action: 'project-toggle-favorite', label: project.favorite ? 'Favorit entfernen' : 'Als Favorit markieren', iconName: project.favorite ? 'pin-filled' : 'pin' },
       { action: 'project-edit', label: 'Projekt bearbeiten', iconName: 'edit' },
       { action: 'project-delete-request', label: 'Projekt löschen', iconName: 'trash', destructive: true },
     ],
@@ -436,7 +470,7 @@ function openFilter(type) {
       ],
     },
     library: {
-      title: 'Bibliothek filtern',
+      title: 'Referenzen filtern',
       options: [
         { value: 'all', label: 'Alle' }, { value: 'link', label: 'Links' },
         { value: 'image', label: 'Bilder' }, { value: 'file', label: 'Dateien' }, { value: 'note', label: 'Notizen' },
@@ -737,7 +771,6 @@ async function handleAction(action, target) {
     case 'open-project-ideas': navigatePush('ideas', { projectId: currentProjectForView(state).id }); break;
     case 'open-project-references': navigatePush('project-references', { projectId: currentProjectForView(state).id }); break;
     case 'open-project-history': navigatePush('history', { projectId: currentProjectForView(state).id }); break;
-    case 'toggle-favorite': await toggleFavorite(); break;
     case 'open-project-menu': openProjectMenu(); break;
     case 'new-bug': openEditor('bug', null, { projectId: currentProjectForView(state).id }); break;
     case 'new-idea': openEditor('idea', null, { projectId: currentProjectForView(state).id }); break;
@@ -774,16 +807,15 @@ async function handleAction(action, target) {
 async function handleSheetAction(action, target) {
   const context = state.sheet;
   if (action === 'cancel') { closeSheet(); return; }
-  if (action === 'compose-note') { closeSheet(); openEditor('inbox', null, { materialType: 'note' }); return; }
-  if (action === 'compose-link') { closeSheet(); openEditor('inbox', null, { materialType: 'link' }); return; }
-  if (action === 'compose-image') { closeSheet(); imageInput.click(); return; }
-  if (action === 'compose-file') { closeSheet(); attachmentInput.click(); return; }
+  if (action === 'quick-capture-image') { closeSheet(); imageInput.click(); return; }
+  if (action === 'quick-capture-file') { closeSheet(); attachmentInput.click(); return; }
   if (action === 'go-library') { closeSheet(); navigatePush('library'); return; }
   if (action === 'go-archive') { closeSheet(); navigatePush('archive'); return; }
   if (action === 'go-settings') { closeSheet(); navigatePush('settings'); return; }
   if (action === 'project-new-bug') { const id = context.projectId; closeSheet(); openEditor('bug', null, { projectId: id }); return; }
   if (action === 'project-new-idea') { const id = context.projectId; closeSheet(); openEditor('idea', null, { projectId: id }); return; }
   if (action === 'project-assign-reference') { closeSheet(); openExistingReferencePicker(); return; }
+  if (action === 'project-toggle-favorite') { closeSheet(); await toggleFavorite(); return; }
   if (action === 'project-edit') { const project = state.projects.find((item) => item.id === context.projectId); closeSheet(); openEditor('project', project); return; }
   if (action === 'project-delete-request') { const id = context.projectId; closeSheet(); requestDelete('project', id, 'Projekt'); return; }
   if (action === 'inbox-process') { closeSheet(); openProcessSheet(); return; }
@@ -820,6 +852,10 @@ async function handleSheetSubmit(event) {
   event.preventDefault();
   const context = state.sheet;
   const data = new FormData(event.target);
+  if (context.type === 'quick-capture') {
+    await saveQuickCapture(data.get('captureText') ?? '');
+    return;
+  }
   if (context.type === 'tag-picker') {
     state.editor.tags = data.getAll('tags');
     closeSheet();

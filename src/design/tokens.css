@@ -1,0 +1,111 @@
+:root {
+  color-scheme: light dark;
+
+  /* System surfaces */
+  --bg: #f2f2f7;
+  --surface: #ffffff;
+  --surface-muted: #f7f7fa;
+  --surface-pressed: #ececf1;
+  --separator: rgba(60, 60, 67, 0.18);
+  --separator-strong: rgba(60, 60, 67, 0.3);
+
+  /* Labels */
+  --text: #1c1c1e;
+  --secondary: #6e6e73;
+  --tertiary: #8e8e93;
+
+  /* Interaction — never project meaning */
+  --accent-purple: #af52de;
+  --interactive-text: #8e36b8;
+  --interactive-soft: rgba(142, 54, 184, 0.1);
+  --interactive-border: rgba(142, 54, 184, 0.18);
+
+  /* Semantic status */
+  --semantic-critical-text: #d70015;
+  --semantic-critical-soft: rgba(215, 0, 21, 0.08);
+  --semantic-major-text: #c93400;
+  --semantic-major-soft: rgba(201, 52, 0, 0.08);
+  --semantic-minor-text: #8a6800;
+  --semantic-blue: #0066cc;
+
+  /* Project Spine — deliberately separate from interaction purple */
+  --project-priority-low: #a5a5aa;
+  --project-priority-normal: #636366;
+  --project-priority-high: #7b526e;
+  --project-priority-strategic: #4f2448;
+
+  /* Glass/navigation */
+  --glass: rgba(248, 248, 250, 0.78);
+  --control-glass: rgba(255, 255, 255, 0.7);
+  --control-border: rgba(255, 255, 255, 0.72);
+  --tab-selection: rgba(175, 82, 222, 0.1);
+  --shadow-control: 0 4px 14px rgba(29, 29, 31, 0.07);
+  --shadow-glass: 0 9px 26px rgba(22, 22, 26, 0.12);
+
+
+  /* Compatibility aliases for existing feature styles */
+  --accent-strong: var(--interactive-text);
+  --accent-soft: var(--interactive-soft);
+  --critical: var(--semantic-critical-text);
+  --critical-soft: var(--semantic-critical-soft);
+  --major: var(--semantic-major-text);
+  --major-soft: var(--semantic-major-soft);
+  --minor: var(--semantic-minor-text);
+  --blue: var(--semantic-blue);
+  --priority-low: var(--project-priority-low);
+  --priority-normal: var(--project-priority-normal);
+  --priority-high: var(--project-priority-high);
+  --priority-strategic: var(--project-priority-strategic);
+  --glass-strong: var(--surface);
+  --selected-glass: var(--tab-selection);
+
+  /* Typography */
+  --font-display: ui-rounded, -apple-system, BlinkMacSystemFont, "SF Pro Rounded", "Helvetica Neue", sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  --font-data: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --text-display: 2.125rem;
+  --text-detail-title: 1.25rem;
+  --text-row-title: 1.0625rem;
+  --text-body: 1.0625rem;
+  --text-meta: 0.875rem;
+  --text-caption: 0.8125rem;
+  --text-tab: 0.75rem;
+
+  /* Geometry */
+  --radius-group: 14px;
+  --radius-sheet: 28px;
+  --max-width: 720px;
+  --tab-width: 296px;
+
+  font-family: var(--font-body);
+  font-synthesis: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #000000;
+    --surface: #1c1c1e;
+    --surface-muted: #2c2c2e;
+    --surface-pressed: #3a3a3c;
+    --text: #ffffff;
+    --secondary: #aeaeb2;
+    --tertiary: #8e8e93;
+    --separator: rgba(84, 84, 88, 0.65);
+    --separator-strong: rgba(174, 174, 178, 0.55);
+    --interactive-text: #d08aff;
+    --interactive-soft: rgba(191, 90, 242, 0.16);
+    --interactive-border: rgba(191, 90, 242, 0.28);
+    --semantic-critical-text: #ff6961;
+    --semantic-critical-soft: rgba(255, 69, 58, 0.14);
+    --semantic-major-text: #ff9f0a;
+    --semantic-major-soft: rgba(255, 159, 10, 0.14);
+    --project-priority-low: #8e8e93;
+    --project-priority-normal: #aeaeb2;
+    --project-priority-high: #b983a7;
+    --project-priority-strategic: #d2a4c8;
+    --glass: rgba(30, 30, 32, 0.76);
+    --control-glass: rgba(55, 55, 58, 0.7);
+    --control-border: rgba(255, 255, 255, 0.1);
+    --tab-selection: rgba(191, 90, 242, 0.16);
+  }
+}
