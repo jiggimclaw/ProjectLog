@@ -29,9 +29,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   position: relative;
   z-index: 20;
   padding: calc(7px + env(safe-area-inset-top)) 14px 5px;
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
-  -webkit-backdrop-filter: saturate(180%) blur(22px);
-  backdrop-filter: saturate(180%) blur(22px);
+  background: var(--bg);
 }
 .header-row {
   width: 100%;
@@ -202,9 +200,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .grouped-list {
   position: relative;
   overflow: hidden;
-  border: 0.5px solid var(--separator);
+  isolation: isolate;
+  border: 0;
   border-radius: var(--radius-group);
   background: var(--surface);
+  background-clip: padding-box;
+  box-shadow: var(--shadow-group);
 }
 .list-row {
   position: relative;
@@ -219,19 +220,26 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   text-align: left;
   cursor: pointer;
 }
-.grouped-list > .list-row + .list-row::before,
-.grouped-list > .material-row + .material-row::before,
-.grouped-list > .reference-row + .reference-row::before {
+.grouped-list > .list-row + .list-row::before {
   content: "";
   position: absolute;
   z-index: 1;
   top: 0;
-  left: 14px;
+  left: var(--divider-inset, 14px);
   right: 0;
   height: 0.5px;
   background: var(--separator);
+  pointer-events: none;
 }
-.list-row:active { background: var(--surface-muted); }
+.grouped-list > .list-row:first-child {
+  border-radius: calc(var(--radius-group) - 1px) calc(var(--radius-group) - 1px) 0 0;
+}
+.grouped-list > .list-row:last-child {
+  border-radius: 0 0 calc(var(--radius-group) - 1px) calc(var(--radius-group) - 1px);
+}
+.grouped-list > .list-row:only-child {
+  border-radius: calc(var(--radius-group) - 1px);
+}
 .row-main { min-width: 0; flex: 1; display: grid; gap: 3px; }
 .row-main > strong,
 .row-title-line strong {
@@ -404,7 +412,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .primary-wide-action, .primary-action { background: var(--accent-purple); color: #fff; }
 .secondary-wide-action { background: var(--surface); color: var(--accent-purple); border: 0.5px solid var(--separator); }
 
-.history-list { list-style: none; margin: 0; padding: 0; overflow: hidden; border: 0.5px solid var(--separator); border-radius: var(--radius-group); background: var(--surface); }
+.history-list { list-style: none; margin: 0; padding: 0; overflow: hidden; isolation: isolate; border: 0; border-radius: var(--radius-group); background: var(--surface); background-clip: padding-box; box-shadow: var(--shadow-group); }
 .history-list li { position: relative; min-height: 62px; padding: 10px 14px; display: grid; grid-template-columns: 90px 1fr; gap: 12px; align-items: start; }
 .history-list li + li::before { content: ""; position: absolute; top: 0; left: 14px; right: 0; height: 0.5px; background: var(--separator); }
 .history-list time { color: var(--secondary); font-size: 12px; }
@@ -439,8 +447,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   border: 0.5px solid color-mix(in srgb, var(--control-border) 70%, transparent);
   border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
   background: color-mix(in srgb, var(--bg) 90%, transparent);
+  background-clip: padding-box;
   color: var(--text);
   overflow: hidden;
+  isolation: isolate;
   -webkit-backdrop-filter: saturate(180%) blur(28px);
   backdrop-filter: saturate(180%) blur(28px);
   box-shadow: 0 -12px 48px rgba(0, 0, 0, 0.16);
@@ -469,7 +479,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .text-button.strong { text-align: right; font-weight: 650; }
 .sheet-body { max-height: calc(92dvh - 70px); padding: 16px 16px calc(20px + env(safe-area-inset-bottom)); overflow-y: auto; }
 .sheet-content { display: grid; gap: 16px; }
-.form-group { overflow: hidden; border: 0.5px solid var(--separator); border-radius: var(--radius-group); background: var(--surface); }
+.form-group { overflow: hidden; isolation: isolate; border: 0; border-radius: var(--radius-group); background: var(--surface); background-clip: padding-box; box-shadow: var(--shadow-group); }
 .form-row {
   position: relative;
   width: 100%;
@@ -525,8 +535,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .select-accessory .icon, .form-row-value .icon { width: 16px; height: 16px; }
 .form-row-value { min-width: 0; max-width: 70%; color: var(--secondary); display: inline-flex; align-items: center; justify-content: flex-end; gap: 5px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .toggle-form-row input { position: absolute; opacity: 0; pointer-events: none; }
-.switch-control { width: 50px; height: 30px; padding: 2px; border-radius: 999px; background: var(--surface-pressed); transition: background 160ms ease; }
-.switch-control::after { content: ""; display: block; width: 26px; height: 26px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.2); transition: transform 160ms ease; }
+.switch-control { width: 50px; height: 30px; padding: 2px; border-radius: 999px; background: var(--surface-pressed); transition: background-color var(--duration-state) ease; }
+.switch-control::after { content: ""; display: block; width: 26px; height: 26px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.2); transition: transform var(--duration-state) var(--ease-in-out); }
 .toggle-form-row input:checked + .switch-control { background: var(--accent-purple); }
 .toggle-form-row input:checked + .switch-control::after { transform: translateX(20px); }
 .form-error { padding: 12px 14px; border-radius: 12px; background: var(--critical-soft); color: var(--critical); font-size: 13px; }
@@ -537,7 +547,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .action-sheet-header h2 { margin: 0; font-size: 17px; }
 .action-sheet-header p { margin: 5px 0 0; color: var(--secondary); font-size: 13px; line-height: 1.35; }
 .action-sheet-body { padding: 0 10px; max-height: 68dvh; overflow-y: auto; }
-.sheet-action-list, .sheet-option-list { overflow: hidden; border: 0.5px solid var(--separator); border-radius: 17px; background: var(--surface); }
+.sheet-action-list, .sheet-option-list { overflow: hidden; isolation: isolate; border: 0; border-radius: 17px; background: var(--surface); background-clip: padding-box; box-shadow: var(--shadow-group); }
+.sheet-action-list > .sheet-action:first-child,
+.sheet-option-list > .sheet-option:first-child { border-radius: 16px 16px 0 0; }
+.sheet-action-list > .sheet-action:last-child,
+.sheet-option-list > .sheet-option:last-child { border-radius: 0 0 16px 16px; }
+.sheet-action-list > .sheet-action:only-child,
+.sheet-option-list > .sheet-option:only-child { border-radius: 16px; }
 .sheet-action {
   position: relative;
   width: 100%;
@@ -602,7 +618,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   font-size: 13px;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 160ms ease, transform 160ms ease;
+  transition: opacity 160ms var(--ease-out), transform 160ms var(--ease-out);
 }
 .toast.is-visible { opacity: 1; transform: translate(-50%, 0); }
 .modal-open { overflow: hidden; }
@@ -615,11 +631,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 
 
-.sheet-action:focus-visible, .sheet-option:focus-within {
-  z-index: 1;
-  outline: none;
-  box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--accent-purple) 36%, transparent);
-}
 .static-settings-row { cursor: default; }
 
 @media (prefers-color-scheme: dark) {
@@ -634,8 +645,3 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
 
-.text-button:focus-visible, .toolbar-button:focus-visible, .tab-item:focus-visible {
-  outline: none;
-  box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--accent-purple) 32%, transparent);
-}
-.text-button:focus-visible { border-radius: 10px; background: var(--accent-soft); }

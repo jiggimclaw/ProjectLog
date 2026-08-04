@@ -12,7 +12,9 @@
   /* Labels */
   --text: #1c1c1e;
   --secondary: #6e6e73;
-  --tertiary: #8e8e93;
+  --tertiary: #73737a;
+  --tertiary-text: #66666d;
+  --placeholder: #6e6e73;
 
   /* Interaction — never project meaning */
   --accent-purple: #af52de;
@@ -39,8 +41,17 @@
   --control-glass: rgba(255, 255, 255, 0.7);
   --control-border: rgba(255, 255, 255, 0.72);
   --tab-selection: rgba(175, 82, 222, 0.1);
+  --surface-edge: rgba(60, 60, 67, 0.14);
+  --shadow-group: 0 0 0 0.5px var(--surface-edge), 0 1px 2px rgba(29, 29, 31, 0.025);
   --shadow-control: 0 4px 14px rgba(29, 29, 31, 0.07);
   --shadow-glass: 0 9px 26px rgba(22, 22, 26, 0.12);
+
+  /* Motion — strong, responsive, and shared across components */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --duration-press: 140ms;
+  --duration-state: 180ms;
 
 
   /* Compatibility aliases for existing feature styles */
@@ -89,7 +100,9 @@
     --surface-pressed: #3a3a3c;
     --text: #ffffff;
     --secondary: #aeaeb2;
-    --tertiary: #8e8e93;
+    --tertiary: #98989d;
+    --tertiary-text: #aeaeb2;
+    --placeholder: #9b9ba1;
     --separator: rgba(84, 84, 88, 0.65);
     --separator-strong: rgba(174, 174, 178, 0.55);
     --interactive-text: #d08aff;
@@ -107,5 +120,7 @@
     --control-glass: rgba(55, 55, 58, 0.7);
     --control-border: rgba(255, 255, 255, 0.1);
     --tab-selection: rgba(191, 90, 242, 0.16);
+    --surface-edge: rgba(255, 255, 255, 0.14);
+    --shadow-group: 0 0 0 0.5px var(--surface-edge), 0 1px 2px rgba(0, 0, 0, 0.28);
   }
 }

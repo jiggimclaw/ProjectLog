@@ -1,0 +1,244 @@
+/* ProjectLog 4.2 — final interaction, accessibility and responsive layer. */
+
+.skip-link {
+  position: fixed;
+  z-index: 1200;
+  top: max(8px, env(safe-area-inset-top));
+  left: 12px;
+  transform: translateY(-160%);
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 12px;
+  background: var(--text);
+  color: var(--surface);
+  display: inline-flex;
+  align-items: center;
+  font-weight: 700;
+}
+.skip-link:focus { transform: translateY(0); }
+
+.connection-status {
+  position: fixed;
+  z-index: 1050;
+  top: calc(8px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  min-height: 40px;
+  padding: 9px 14px;
+  border-radius: 999px;
+  background: rgba(28, 28, 30, 0.94);
+  color: #fff;
+  font-size: var(--text-meta);
+  text-align: center;
+  box-shadow: var(--shadow-glass);
+}
+
+button, [role="button"], a, input, textarea, select, label.sheet-option {
+  touch-action: manipulation;
+}
+button, [role="button"], a { -webkit-tap-highlight-color: transparent; }
+
+/* Frequent list navigation gets a quiet state change; isolated controls get physical press feedback. */
+.list-row,
+.sheet-action,
+.sheet-option {
+  transition: background-color 120ms ease;
+}
+.list-row:active,
+.sheet-action:active,
+.sheet-option:active {
+  background-color: var(--surface-pressed);
+}
+:is(.toolbar-button, .tab-item, .primary-action, .primary-wide-action, .secondary-wide-action, .quick-capture-action, .sheet-primary, .sheet-secondary, .sheet-cancel, .danger-button, .text-button, .toast button) {
+  transform: translateZ(0);
+  transition: transform var(--duration-press) var(--ease-out), opacity 120ms ease, background-color var(--duration-state) ease;
+}
+:is(.toolbar-button, .tab-item, .primary-action, .primary-wide-action, .secondary-wide-action, .quick-capture-action, .sheet-primary, .sheet-secondary, .sheet-cancel, .danger-button, .text-button, .toast button):active:not(:disabled) {
+  transform: scale(0.97);
+}
+.primary-action:active:not(:disabled),
+.primary-wide-action:active:not(:disabled),
+.sheet-primary:active:not(:disabled) {
+  filter: brightness(0.94);
+}
+
+:where(button, a, input, textarea, select, [tabindex]):focus-visible {
+  outline: 3px solid var(--interactive-text) !important;
+  outline-offset: 2px !important;
+  box-shadow: none !important;
+}
+/* Focus follows the actual component geometry instead of being clipped by rounded containers. */
+.toolbar-cluster .toolbar-button:focus-visible {
+  z-index: 2;
+  outline: none !important;
+  box-shadow: inset 0 0 0 3px var(--interactive-text) !important;
+}
+.grouped-list > .list-row:focus-visible,
+.form-group > .form-row:focus-visible,
+.form-group > .form-row:has(:focus-visible),
+.form-group > .form-field:has(input:focus-visible),
+.sheet-action:focus-visible,
+.sheet-option:has(input:focus-visible) {
+  z-index: 2;
+  outline: none !important;
+  box-shadow: inset 0 0 0 3px var(--interactive-text) !important;
+}
+.quick-capture-field:focus-within {
+  outline: none;
+  border-color: transparent;
+  box-shadow: inset 0 0 0 3px var(--interactive-text);
+}
+.sheet-header .text-button:focus-visible {
+  outline: none !important;
+  box-shadow: inset 0 0 0 3px var(--interactive-text) !important;
+}
+.quick-capture-field textarea:focus-visible,
+.form-group .text-form-row input:focus-visible,
+.form-group .select-form-row select:focus-visible,
+.form-group .toggle-form-row input:focus-visible,
+.sheet-option input:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+:where(button, input, textarea, select):disabled,
+[aria-disabled="true"] {
+  opacity: 0.46;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+[aria-busy="true"] { cursor: progress; }
+[aria-busy="true"] .button-label { opacity: 0.74; }
+.inline-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
+  flex: 0 0 auto;
+}
+
+input::placeholder, textarea::placeholder { color: var(--placeholder); opacity: 1; }
+.row-meta, .row-description, .header-subtitle, .inbox-meta, .reference-meta-row { color: var(--secondary); }
+.tertiary-text { color: var(--tertiary-text); }
+
+.required-marker { color: var(--semantic-critical-text); margin-left: 3px; }
+.field-error {
+  margin: 6px 12px 0;
+  color: var(--semantic-critical-text);
+  font-size: var(--text-meta);
+  line-height: 1.4;
+}
+[aria-invalid="true"] {
+  border-color: var(--semantic-critical-text) !important;
+  box-shadow: 0 0 0 2px var(--semantic-critical-soft) !important;
+}
+[aria-invalid="true"]:focus-visible {
+  outline-color: var(--semantic-critical-text) !important;
+}
+
+.search-field input { min-height: 44px; }
+.material-thumbnail { width: 44px; height: 44px; aspect-ratio: 1; object-fit: cover; }
+.image-preview img { width: 100%; height: auto; aspect-ratio: 4 / 3; object-fit: contain; }
+
+@media (orientation: landscape) and (max-height: 520px) {
+  .app-header { padding-top: max(4px, env(safe-area-inset-top)); padding-bottom: 4px; }
+  .header-row { min-height: 48px; }
+  .root-header .header-title-group h1 { font-size: 1.55rem; }
+  .app-main { padding-top: 2px; padding-bottom: calc(66px + env(safe-area-inset-bottom)); }
+  .tab-bar {
+    width: min(calc(100% - 96px), 270px);
+    height: 56px;
+    bottom: calc(2px + env(safe-area-inset-bottom));
+    border-radius: 28px;
+  }
+  .tab-item { min-height: 46px; border-radius: 23px; }
+  .sheet-dialog, .action-dialog {
+    width: min(calc(100% - 24px), 640px);
+    max-width: 640px;
+    max-height: calc(100dvh - 16px);
+    margin: 8px auto;
+    border-radius: 22px;
+  }
+  .sheet-body { max-height: calc(100dvh - 78px); padding-bottom: 14px; }
+  .action-sheet-body { max-height: calc(100dvh - 124px); }
+  .quick-capture-form { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(220px, .6fr); gap: 10px; }
+  .quick-capture-field { grid-row: 1 / 3; }
+  .quick-capture-field textarea { min-height: 104px; }
+  .quick-capture-actions, .quick-capture-footer { grid-template-columns: 1fr; margin: 0; }
+  .quick-capture-action, .sheet-primary, .sheet-secondary { min-height: 44px; }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --placeholder: var(--text);
+    --tertiary-text: var(--text);
+    --separator: rgba(60, 60, 67, 0.48);
+    --separator-strong: rgba(60, 60, 67, 0.72);
+  }
+  :where(button, a, input, textarea, select, [tabindex]):focus-visible { outline-width: 4px !important; }
+  .quick-capture-field:focus-within,
+  .sheet-header .text-button:focus-visible { box-shadow: inset 0 0 0 4px var(--interactive-text) !important; }
+  .grouped-list, .form-group, .history-list, .sheet-action-list, .sheet-option-list { box-shadow: 0 0 0 1px var(--separator-strong); }
+  .compact-text-block input, .form-block textarea { border-width: 1px; }
+}
+
+
+@media (prefers-reduced-transparency: reduce) {
+  .tab-bar,
+  .toolbar-actions.toolbar-cluster,
+  .toolbar-button,
+  .sheet-dialog,
+  .action-dialog {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    background: var(--surface) !important;
+    border-color: var(--separator-strong) !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skip-link, .connection-status, .inline-spinner { transition: none !important; }
+  :is(.toolbar-button, .tab-item, .primary-action, .primary-wide-action, .secondary-wide-action, .quick-capture-action, .sheet-primary, .sheet-secondary, .sheet-cancel, .danger-button, .text-button, .toast button) {
+    transform: none !important;
+  }
+  .inline-spinner { animation-duration: 1.4s !important; }
+}
+
+.toast {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+.toast button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.16);
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+}
+@media (prefers-color-scheme: dark) {
+  .toast button { background: rgba(28, 28, 30, 0.1); }
+}
+
+
+.form-field { min-width: 0; }
+.form-group > .form-field { position: relative; }
+.form-group > .form-field + .form-field::before,
+.form-group > .form-row + .form-field::before,
+.form-group > .form-field + .form-row::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 14px;
+  right: 0;
+  height: 0.5px;
+  background: var(--separator);
+}
+[data-search-results] { min-height: 1px; }

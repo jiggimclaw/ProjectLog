@@ -1,5 +1,5 @@
-const CACHE_NAME = 'projectlog-shell-v4-0-0';
-const VERSION = '4.0.0';
+const CACHE_NAME = 'projectlog-shell-v4-2-0';
+const VERSION = '4.2.0';
 const versioned = (path) => `${path}?v=${VERSION}`;
 const APP_SHELL = [
   './',
@@ -7,6 +7,7 @@ const APP_SHELL = [
   versioned('./styles.css'),
   versioned('./src/design/tokens.css'),
   versioned('./src/design/components.css'),
+  versioned('./src/design/accessibility.css'),
   versioned('./src/ui/primitives.js'),
   versioned('./manifest.webmanifest'),
   versioned('./src/app.js'),
@@ -24,6 +25,7 @@ const APP_SHELL = [
   versioned('./src/navigation.js'),
   versioned('./src/sheets.js'),
   versioned('./src/forms.js'),
+  versioned('./src/drafts.js'),
   versioned('./src/views.js'),
   './icons/icon-192.png',
   './icons/icon-512.png',

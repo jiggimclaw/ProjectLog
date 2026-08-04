@@ -1,7 +1,7 @@
-import { icon } from './icons.js?v=4.0.0';
-import { tagMeta } from './presentation.js?v=4.0.0';
-import { escapeHtml } from './view-helpers.js?v=4.0.0';
-import { TAG_VALUES } from './domain.js?v=4.0.0';
+import { icon } from './icons.js?v=4.2.0';
+import { tagMeta } from './presentation.js?v=4.2.0';
+import { escapeHtml } from './view-helpers.js?v=4.2.0';
+import { TAG_VALUES } from './domain.js?v=4.2.0';
 
 function shell({ title, message = '', body = '', footer = '' }) {
   return `

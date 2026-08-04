@@ -1,13 +1,21 @@
-import { buildBackupFilename } from './backup.js?v=4.0.0';
-import { createBug, createIdea, createProject, updateEntity } from './domain.js?v=4.0.0';
-import { editorTitle, renderEditorFields, selectedTagsFromEditor } from './forms.js?v=4.0.0';
-import { icon } from './icons.js?v=4.0.0';
+import { buildBackupFilename } from './backup.js?v=4.2.0';
+import { createBug, createIdea, createProject, updateEntity } from './domain.js?v=4.2.0';
+import { editorTitle, renderEditorFields, selectedTagsFromEditor } from './forms.js?v=4.2.0';
+import {
+  clearCaptureDraft,
+  clearEditorDraft,
+  persistCaptureDraft,
+  persistEditorDraft,
+  restoreCaptureDraft,
+  restoreEditorDraft,
+} from './drafts.js?v=4.2.0';
+import { icon } from './icons.js?v=4.2.0';
 import {
   createAttachment,
   createInboxItem,
   createReference,
   updateMaterial,
-} from './materials.js?v=4.0.0';
+} from './materials.js?v=4.2.0';
 import {
   activeRootTab,
   currentInboxForView,
@@ -15,8 +23,9 @@ import {
   currentReferenceForView,
   renderHeader,
   renderMain,
+  renderSearchResults,
   tabBarVisible,
-} from './views.js?v=4.0.0';
+} from './views.js?v=4.2.0';
 import {
   createNavigationState,
   currentView,
@@ -24,8 +33,8 @@ import {
   pushView,
   replaceView,
   resetRootView,
-} from './navigation.js?v=4.0.0';
-import { parseLaunchCommand } from './router.js?v=4.0.0';
+} from './navigation.js?v=4.2.0';
+import { parseLaunchCommand } from './router.js?v=4.2.0';
 import {
   actionSheet,
   quickCaptureSheet,
@@ -33,11 +42,11 @@ import {
   filterSheet,
   projectPickerSheet,
   tagPickerSheet,
-} from './sheets.js?v=4.0.0';
-import { ProjectLogRepository } from './storage.js?v=4.0.0';
-import { escapeHtml } from './view-helpers.js?v=4.0.0';
+} from './sheets.js?v=4.2.0';
+import { ProjectLogRepository } from './storage.js?v=4.2.0';
+import { escapeHtml } from './view-helpers.js?v=4.2.0';
 
-export const APP_VERSION = '4.0.0';
+export const APP_VERSION = '4.2.0';
 
 const repository = new ProjectLogRepository();
 const LEGACY_EXTRAS_KEY = 'projectlog.extras.v3';
@@ -56,10 +65,13 @@ const state = {
   search: { projects: '', inbox: '', library: '' },
   filters: { bugs: 'open', ideas: 'open', library: 'all' },
   attachmentUrls: new Map(),
+  lazyImageObserver: null,
   editor: null,
   sheet: null,
   pendingImport: null,
   baseUrl: '',
+  scrollPositions: new Map(),
+  searchDebounce: null,
 };
 
 const appShell = document.querySelector('#app-shell');
@@ -79,6 +91,7 @@ const attachmentInput = document.querySelector('#attachment-file');
 const importInput = document.querySelector('#import-file');
 const toast = document.querySelector('#toast');
 const statusBarMeta = document.querySelector('#status-bar-style');
+const connectionStatus = document.querySelector('#connection-status');
 
 function appBaseUrl() {
   const url = new URL(window.location.href);
@@ -87,24 +100,109 @@ function appBaseUrl() {
   return url.toString();
 }
 
+function materialDeepLink(action, parameter, id) {
+  const url = new URL(appBaseUrl());
+  url.searchParams.set('action', action);
+  url.searchParams.set(parameter, id);
+  return url.toString();
+}
+
 function syncStatusBarStyle() {
   if (!statusBarMeta) return;
   statusBarMeta.content = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'black-translucent' : 'default';
 }
 
-function showToast(message, timeout = 3000) {
-  toast.textContent = message;
+function showToast(message, timeout = 3000, action = null) {
+  toast.innerHTML = `<span>${escapeHtml(message)}</span>${action ? `<button type="button" data-toast-action="run">${escapeHtml(action.label)}</button>` : ''}`;
+  showToast.action = action?.run ?? null;
   toast.classList.add('is-visible');
   window.clearTimeout(showToast.timer);
-  showToast.timer = window.setTimeout(() => toast.classList.remove('is-visible'), timeout);
+  showToast.timer = window.setTimeout(() => {
+    toast.classList.remove('is-visible');
+    showToast.action = null;
+  }, action ? Math.max(timeout, 6500) : timeout);
 }
 
-function rebuildAttachmentUrls() {
-  for (const value of state.attachmentUrls.values()) URL.revokeObjectURL?.(value);
-  state.attachmentUrls = new Map();
-  for (const attachment of state.attachments) {
-    if (attachment.blob instanceof Blob && URL.createObjectURL) {
-      state.attachmentUrls.set(attachment.id, URL.createObjectURL(attachment.blob));
+function updateConnectionStatus() {
+  if (!connectionStatus) return;
+  const offline = navigator.onLine === false;
+  connectionStatus.hidden = !offline;
+  connectionStatus.textContent = offline ? 'Offline – Änderungen bleiben lokal gespeichert.' : '';
+}
+
+function reconcileAttachmentUrls() {
+  const currentIds = new Set(state.attachments.map((attachment) => attachment.id));
+  for (const [id, value] of state.attachmentUrls) {
+    if (!currentIds.has(id)) {
+      URL.revokeObjectURL?.(value);
+      state.attachmentUrls.delete(id);
+    }
+  }
+}
+
+function ensureAttachmentUrl(attachmentId) {
+  if (!attachmentId) return '';
+  if (state.attachmentUrls.has(attachmentId)) return state.attachmentUrls.get(attachmentId);
+  const attachment = state.attachments.find((item) => item.id === attachmentId);
+  if (!(attachment?.blob instanceof Blob) || !URL.createObjectURL) return '';
+  const value = URL.createObjectURL(attachment.blob);
+  state.attachmentUrls.set(attachmentId, value);
+  return value;
+}
+
+function activateLazyImages(root = main, { reset = false } = {}) {
+  if (reset && state.lazyImageObserver) {
+    state.lazyImageObserver.disconnect();
+    state.lazyImageObserver = null;
+  }
+  const images = [...root.querySelectorAll('img[data-attachment-id]:not([data-loaded])')];
+  const loadImage = (image) => {
+    const url = ensureAttachmentUrl(image.dataset.attachmentId);
+    if (url) image.src = url;
+    image.dataset.loaded = 'true';
+    state.lazyImageObserver?.unobserve(image);
+  };
+  if (!('IntersectionObserver' in window)) {
+    for (const image of images) loadImage(image);
+    return;
+  }
+  state.lazyImageObserver ??= new IntersectionObserver((entries) => {
+    for (const entry of entries) if (entry.isIntersecting) loadImage(entry.target);
+  }, { root: main, rootMargin: '160px 0px' });
+  for (const image of images) state.lazyImageObserver.observe(image);
+}
+
+function setFormBusy(form, busy, label = 'Wird verarbeitet …') {
+  if (!form) return;
+  if (busy) form.setAttribute('aria-busy', 'true');
+  else form.removeAttribute('aria-busy');
+  const controls = [...form.querySelectorAll('button, input, textarea, select')];
+  for (const control of controls) control.disabled = busy;
+  const submit = form.querySelector('[type="submit"]');
+  if (!submit) return;
+  if (busy) {
+    submit.dataset.originalHtml = submit.innerHTML;
+    submit.innerHTML = `<span class="inline-spinner" aria-hidden="true"></span><span class="button-label">${escapeHtml(label)}</span>`;
+  } else if (submit.dataset.originalHtml) {
+    submit.innerHTML = submit.dataset.originalHtml;
+    delete submit.dataset.originalHtml;
+  }
+}
+
+async function withBusyControl(control, operation, label = 'Wird verarbeitet …') {
+  if (!control || control.disabled || control.getAttribute('aria-busy') === 'true') return;
+  const original = control.innerHTML;
+  control.disabled = true;
+  control.setAttribute('aria-busy', 'true');
+  if (!control.classList.contains('toolbar-button')) {
+    control.innerHTML = `<span class="inline-spinner" aria-hidden="true"></span><span class="button-label">${escapeHtml(label)}</span>`;
+  }
+  try { return await operation(); }
+  finally {
+    if (control.isConnected) {
+      control.disabled = false;
+      control.removeAttribute('aria-busy');
+      control.innerHTML = original;
     }
   }
 }
@@ -122,7 +220,8 @@ async function refresh({ renderView = true } = {}) {
     repository.getSettings(),
   ]);
   Object.assign(state, { projects, bugs, ideas, inboxItems, references, attachments, events, monthlySummaries, settings });
-  rebuildAttachmentUrls();
+  reconcileAttachmentUrls();
+  state.ensureAttachmentUrl = ensureAttachmentUrl;
   if (renderView) render();
 }
 
@@ -186,30 +285,50 @@ function render() {
   header.innerHTML = renderHeader(state);
   main.innerHTML = renderMain(state);
   syncTabBar();
+  activateLazyImages(main, { reset: true });
+}
+
+function navigationScrollKey(navigation = state.navigation) {
+  const view = currentView(navigation);
+  const params = Object.entries(view.params ?? {}).sort(([a], [b]) => a.localeCompare(b));
+  return `${view.name}:${JSON.stringify(params)}`;
+}
+
+function saveCurrentScroll() {
+  state.scrollPositions.set(navigationScrollKey(), main.scrollTop);
+}
+
+function restoreCurrentScroll(fallback = 0) {
+  const top = state.scrollPositions.get(navigationScrollKey()) ?? fallback;
+  requestAnimationFrame(() => { main.scrollTop = top; });
 }
 
 function navigatePush(name, params = {}) {
+  saveCurrentScroll();
   state.navigation = pushView(state.navigation, name, params);
   render();
-  main.scrollTop = 0;
+  restoreCurrentScroll(0);
 }
 
 function navigateReplace(name, params = {}) {
+  saveCurrentScroll();
   state.navigation = replaceView(state.navigation, name, params);
   render();
-  main.scrollTop = 0;
+  restoreCurrentScroll(0);
 }
 
 function navigateBack() {
+  saveCurrentScroll();
   state.navigation = popView(state.navigation);
   render();
-  main.scrollTop = 0;
+  restoreCurrentScroll(0);
 }
 
 function navigateRoot(root) {
+  saveCurrentScroll();
   state.navigation = resetRootView(state.navigation, root);
   render();
-  main.scrollTop = 0;
+  restoreCurrentScroll(0);
 }
 
 function openSheet(html, context = {}) {
@@ -240,6 +359,8 @@ function captureEditorDraft() {
   const data = new FormData(editorForm);
   state.editor.draft = Object.fromEntries([...data.entries()].filter(([key]) => key !== 'tags'));
   state.editor.draft.favorite = data.get('favorite') === 'on';
+  state.editor.draft.tags = [...state.editor.tags];
+  persistEditorDraft(state.editor, state.editor.draft);
 }
 
 function renderEditor() {
@@ -253,9 +374,50 @@ function renderEditor() {
     : '';
 }
 
+function clearFieldValidation(field) {
+  if (!field?.id) return;
+  field.removeAttribute('aria-invalid');
+  const target = editorForm.querySelector(`[data-field-error="${CSS.escape(field.id)}"]`);
+  if (target) {
+    target.hidden = true;
+    target.textContent = '';
+  }
+}
+
+function fieldValidationMessage(field) {
+  if (field.required && !String(field.value ?? '').trim()) return 'Dieses Feld ist erforderlich.';
+  if (field.validity?.typeMismatch) return 'Gib eine vollständige URL einschließlich https:// ein.';
+  if (field.validity?.tooLong) return `Der Inhalt darf höchstens ${field.maxLength} Zeichen lang sein.`;
+  return field.validationMessage || 'Prüfe den eingegebenen Wert.';
+}
+
+function validateEditorForm() {
+  const fields = [...editorForm.querySelectorAll('input, textarea, select')]
+    .filter((field) => field.type !== 'hidden' && !field.disabled);
+  let firstInvalid = null;
+  for (const field of fields) {
+    clearFieldValidation(field);
+    const whitespaceMissing = field.required && !String(field.value ?? '').trim();
+    if (!whitespaceMissing && field.checkValidity()) continue;
+    field.setAttribute('aria-invalid', 'true');
+    const target = editorForm.querySelector(`[data-field-error="${CSS.escape(field.id)}"]`);
+    if (target) {
+      target.textContent = fieldValidationMessage(field);
+      target.hidden = false;
+    }
+    firstInvalid ??= field;
+  }
+  if (!firstInvalid) return true;
+  editorError.textContent = 'Prüfe die markierten Felder.';
+  editorError.hidden = false;
+  firstInvalid.focus({ preventScroll: true });
+  firstInvalid.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  return false;
+}
+
 function openEditor(type, entity = null, options = {}) {
   const projectId = entity?.projectId ?? options.projectId ?? currentProjectForView(state)?.id ?? null;
-  state.editor = {
+  const editor = {
     type,
     entity,
     projectId,
@@ -264,13 +426,22 @@ function openEditor(type, entity = null, options = {}) {
     tags: [...(entity?.tags ?? options.tags ?? [])],
     draft: {},
   };
+  const restored = restoreEditorDraft(editor);
+  if (restored) {
+    editor.draft = restored;
+    if (Array.isArray(restored.tags)) editor.tags = [...restored.tags];
+  }
+  state.editor = editor;
   renderEditor();
   document.documentElement.classList.add('modal-open');
   editorDialog.showModal();
   window.setTimeout(() => editorFields.querySelector('input:not([type="hidden"]), textarea, select')?.focus(), 50);
+  if (restored) showToast('Entwurf wiederhergestellt.');
 }
 
-function closeEditor() {
+function closeEditor({ clearDraft = false } = {}) {
+  const editor = state.editor;
+  if (clearDraft && editor) clearEditorDraft(editor);
   if (editorDialog.open) editorDialog.close();
   state.editor = null;
 }
@@ -289,7 +460,7 @@ async function saveEditor(formData) {
     };
     const saved = editor.entity ? updateEntity('project', editor.entity, values, now) : createProject(values, { now });
     await repository.saveEntity('project', saved);
-    closeEditor();
+    closeEditor({ clearDraft: true });
     await refresh({ renderView: false });
     state.navigation = pushView(createNavigationState('projects'), 'project', { projectId: saved.id });
     render();
@@ -305,7 +476,7 @@ async function saveEditor(formData) {
       ? updateEntity('bug', editor.entity, values, now)
       : createBug({ ...values, projectId: editor.projectId }, { sequence: await repository.nextSequence('bug'), now });
     await repository.saveEntity('bug', saved);
-    closeEditor();
+    closeEditor({ clearDraft: true });
     await refresh();
   } else if (editor.type === 'idea') {
     const values = {
@@ -319,7 +490,7 @@ async function saveEditor(formData) {
       ? updateEntity('idea', editor.entity, values, now)
       : createIdea({ ...values, projectId: editor.projectId }, { sequence: await repository.nextSequence('idea'), now });
     await repository.saveEntity('idea', saved);
-    closeEditor();
+    closeEditor({ clearDraft: true });
     await refresh();
   } else if (editor.type === 'inbox') {
     const values = {
@@ -334,7 +505,7 @@ async function saveEditor(formData) {
       ? updateMaterial('inbox', editor.entity, values, now)
       : createInboxItem(values, { now });
     await repository.saveInboxItem(saved);
-    closeEditor();
+    closeEditor({ clearDraft: true });
     await refresh({ renderView: false });
     state.navigation = pushView(createNavigationState('inbox'), 'inbox-detail', { inboxId: saved.id });
     render();
@@ -347,7 +518,7 @@ async function saveEditor(formData) {
     };
     const saved = updateMaterial('reference', editor.entity, values, now);
     await repository.saveReference(saved);
-    closeEditor();
+    closeEditor({ clearDraft: true });
     await refresh();
   }
   showToast('Gesichert.');
@@ -379,6 +550,7 @@ async function saveQuickCapture(value) {
     tags: [],
   }, { now: new Date().toISOString() });
   await repository.saveInboxItem(item);
+  clearCaptureDraft();
   closeSheet();
   await refresh({ renderView: false });
   state.navigation = pushView(createNavigationState('inbox'), 'inbox-detail', { inboxId: item.id });
@@ -392,7 +564,9 @@ function openTagPicker() {
 }
 
 function openCompose() {
-  openSheet(quickCaptureSheet(), { type: 'quick-capture' });
+  const draft = restoreCaptureDraft();
+  openSheet(quickCaptureSheet({ value: draft }), { type: 'quick-capture' });
+  if (draft) showToast('Entwurf wiederhergestellt.');
 }
 
 function openProjectMenu() {
@@ -419,6 +593,7 @@ function openInboxMenu() {
     actions: [
       { action: 'inbox-process', label: 'Weiterverarbeiten', detail: 'Projekt, Idee, Bug oder Referenz', iconName: 'sparkles' },
       { action: 'inbox-share', label: 'Teilen', iconName: 'share' },
+      { action: 'inbox-copy-link', label: 'App-Link kopieren', detail: 'Öffnet diesen Eingangseintrag direkt', iconName: 'copy' },
       { action: 'inbox-delete-request', label: 'Löschen', iconName: 'trash', destructive: true },
     ],
   }), { type: 'inbox-menu', inboxId: item.id });
@@ -431,6 +606,7 @@ function openReferenceMenu() {
     title: reference.title,
     actions: [
       { action: 'reference-share', label: 'Teilen', iconName: 'share' },
+      { action: 'reference-copy-link', label: 'App-Link kopieren', detail: 'Öffnet diese Referenz direkt', iconName: 'copy' },
       { action: 'reference-return', label: 'Zurück in den Eingang', iconName: 'restore' },
       { action: 'reference-toggle-archive', label: reference.archived ? 'Wiederherstellen' : 'Archivieren', iconName: 'archive' },
       { action: 'reference-delete-request', label: 'Löschen', iconName: 'trash', destructive: true },
@@ -642,7 +818,7 @@ async function openMaterialAttachment() {
   const item = currentMaterial();
   if (!item?.attachmentId) throw new Error('Kein Anhang vorhanden');
   const attachment = state.attachments.find((entry) => entry.id === item.attachmentId);
-  const url = state.attachmentUrls.get(item.attachmentId);
+  const url = ensureAttachmentUrl(item.attachmentId);
   if (!attachment || !url) throw new Error('Anhang konnte nicht geöffnet werden');
   const anchor = document.createElement('a');
   anchor.href = url;
@@ -720,14 +896,77 @@ async function loadDemo() {
 }
 
 async function clearAll() {
+  const backup = await repository.exportBackup();
   await repository.clearAll();
   await refresh({ renderView: false });
   state.navigation = createNavigationState('projects');
   render();
-  showToast('Alle lokalen Daten gelöscht.');
+  showToast('Alle lokalen Daten gelöscht.', 6500, {
+    label: 'Rückgängig',
+    run: async () => {
+      await repository.importBackup(backup);
+      await refresh({ renderView: false });
+      state.navigation = createNavigationState('projects');
+      render();
+      showToast('Löschen rückgängig gemacht.');
+    },
+  });
+}
+
+function deleteSnapshot(context) {
+  if (context.kind === 'project') {
+    return {
+      kind: 'project',
+      project: state.projects.find((item) => item.id === context.id),
+      bugs: state.bugs.filter((item) => item.projectId === context.id),
+      ideas: state.ideas.filter((item) => item.projectId === context.id),
+      references: state.references.filter((item) => item.projectIds.includes(context.id)),
+      events: state.events.filter((item) => item.projectId === context.id),
+      monthlySummaries: state.monthlySummaries.filter((item) => item.projectId === context.id),
+    };
+  }
+  if (context.kind === 'bug' || context.kind === 'idea') {
+    const store = context.kind === 'bug' ? 'bugs' : 'ideas';
+    return { kind: context.kind, entity: state[store].find((item) => item.id === context.id) };
+  }
+  if (context.kind === 'inbox') {
+    const entity = state.inboxItems.find((item) => item.id === context.id);
+    const attachment = entity?.attachmentId ? state.attachments.find((item) => item.id === entity.attachmentId) : null;
+    return { kind: 'inbox', entity, attachment };
+  }
+  if (context.kind === 'reference') {
+    const entity = state.references.find((item) => item.id === context.id);
+    const attachment = entity?.attachmentId ? state.attachments.find((item) => item.id === entity.attachmentId) : null;
+    return { kind: 'reference', entity, attachment };
+  }
+  return null;
+}
+
+async function restoreDeleteSnapshot(snapshot) {
+  if (!snapshot) return;
+  if (snapshot.kind === 'project') {
+    if (snapshot.project) await repository.put('projects', snapshot.project);
+    for (const item of snapshot.bugs) await repository.put('bugs', item);
+    for (const item of snapshot.ideas) await repository.put('ideas', item);
+    for (const item of snapshot.references) await repository.put('references', item);
+    for (const item of snapshot.events) await repository.put('events', item);
+    for (const item of snapshot.monthlySummaries) await repository.put('monthlySummaries', item);
+  } else if (snapshot.kind === 'bug' || snapshot.kind === 'idea') {
+    if (snapshot.entity) await repository.put(snapshot.kind === 'bug' ? 'bugs' : 'ideas', snapshot.entity);
+  } else if (snapshot.kind === 'inbox') {
+    if (snapshot.attachment) await repository.put('attachments', snapshot.attachment);
+    if (snapshot.entity) await repository.put('inboxItems', snapshot.entity);
+  } else if (snapshot.kind === 'reference') {
+    if (snapshot.attachment) await repository.put('attachments', snapshot.attachment);
+    if (snapshot.entity) await repository.put('references', snapshot.entity);
+  }
+  await refresh({ renderView: false });
+  render();
+  showToast('Löschen rückgängig gemacht.');
 }
 
 async function executeDelete(context) {
+  const snapshot = deleteSnapshot(context);
   if (context.kind === 'project') {
     await repository.removeProjectCascade(context.id);
     await refresh({ renderView: false });
@@ -744,13 +983,13 @@ async function executeDelete(context) {
     await refresh({ renderView: false });
     state.navigation = pushView(createNavigationState('projects'), 'library');
   }
-  closeEditor();
+  closeEditor({ clearDraft: true });
   render();
-  showToast('Gelöscht.');
+  showToast('Gelöscht.', 6500, { label: 'Rückgängig', run: () => restoreDeleteSnapshot(snapshot) });
 }
 
 function requestDelete(kind, id, label) {
-  openSheet(confirmSheet({ title: `${label} löschen?`, message: 'Diese Aktion kann nicht rückgängig gemacht werden.', confirmLabel: 'Löschen', action: 'confirm-delete' }), { type: 'confirm-delete', kind, id });
+  openSheet(confirmSheet({ title: `${label} löschen?`, message: 'Du kannst das Löschen direkt danach rückgängig machen.', confirmLabel: 'Löschen', action: 'confirm-delete' }), { type: 'confirm-delete', kind, id });
 }
 
 async function toggleFavorite() {
@@ -820,6 +1059,7 @@ async function handleSheetAction(action, target) {
   if (action === 'project-delete-request') { const id = context.projectId; closeSheet(); requestDelete('project', id, 'Projekt'); return; }
   if (action === 'inbox-process') { closeSheet(); openProcessSheet(); return; }
   if (action === 'inbox-share') { const item = state.inboxItems.find((entry) => entry.id === context.inboxId); closeSheet(); await shareMaterial(item); return; }
+  if (action === 'inbox-copy-link') { const id = context.inboxId; closeSheet(); showToast(await copyToClipboard(materialDeepLink('open-inbox', 'inbox', id)) ? 'App-Link kopiert.' : 'Kopieren ist nicht verfügbar.'); return; }
   if (action === 'inbox-delete-request') { const id = context.inboxId; closeSheet(); requestDelete('inbox', id, 'Eingangseintrag'); return; }
   if (action === 'process-project') { const id = context.inboxId; closeSheet(); await processInboxToProject(id); return; }
   if (['process-idea', 'process-bug', 'process-reference'].includes(action)) {
@@ -831,6 +1071,7 @@ async function handleSheetAction(action, target) {
     return;
   }
   if (action === 'reference-share') { const reference = state.references.find((item) => item.id === context.referenceId); closeSheet(); await shareMaterial(reference); return; }
+  if (action === 'reference-copy-link') { const id = context.referenceId; closeSheet(); showToast(await copyToClipboard(materialDeepLink('open-reference', 'reference', id)) ? 'App-Link kopiert.' : 'Kopieren ist nicht verfügbar.'); return; }
   if (action === 'reference-return') { const reference = state.references.find((item) => item.id === context.referenceId); closeSheet(); await returnReferenceToInbox(reference); return; }
   if (action === 'reference-toggle-archive') {
     const reference = state.references.find((item) => item.id === context.referenceId);
@@ -843,51 +1084,85 @@ async function handleSheetAction(action, target) {
   }
   if (action === 'reference-delete-request') { const id = context.referenceId; closeSheet(); requestDelete('reference', id, 'Referenz'); return; }
   if (action === 'assign-existing-reference') { const referenceId = target.dataset.value; const projectId = context.projectId; closeSheet(); await assignExistingReference(referenceId, projectId); return; }
-  if (action === 'confirm-delete') { closeSheet(); await executeDelete(context); return; }
-  if (action === 'confirm-clear-all') { closeSheet(); await clearAll(); return; }
-  if (action === 'confirm-import') { closeSheet(); await executeImport(); return; }
+  if (action === 'confirm-delete') { await executeDelete(context); closeSheet(); return; }
+  if (action === 'confirm-clear-all') { await clearAll(); closeSheet(); return; }
+  if (action === 'confirm-import') { await executeImport(); closeSheet(); return; }
 }
 
 async function handleSheetSubmit(event) {
   event.preventDefault();
+  const form = event.target;
   const context = state.sheet;
-  const data = new FormData(event.target);
-  if (context.type === 'quick-capture') {
-    await saveQuickCapture(data.get('captureText') ?? '');
-    return;
-  }
-  if (context.type === 'tag-picker') {
-    state.editor.tags = data.getAll('tags');
-    closeSheet();
-    renderEditor();
-    return;
-  }
-  if (context.type === 'filter') {
-    state.filters[context.filterType] = data.get('filter');
-    closeSheet();
-    render();
-    return;
-  }
-  if (context.type === 'project-picker') {
-    const projectIds = data.getAll('projectIds');
-    if (!projectIds.length) { showToast('Wähle mindestens ein Projekt.'); return; }
-    const purpose = context.purpose;
-    const inboxId = context.inboxId;
-    const referenceId = context.referenceId;
-    closeSheet();
-    if (purpose === 'reference-projects') await assignReferenceProjects(referenceId, projectIds);
-    else {
-      state.sheet = { inboxId };
-      await processInboxWithProjects(purpose, projectIds);
-      state.sheet = null;
+  const data = new FormData(form);
+  const busyLabel = context?.type === 'quick-capture' ? 'Sichert …' : context?.type === 'filter' ? 'Wendet an …' : 'Übernimmt …';
+  setFormBusy(form, true, busyLabel);
+  try {
+    if (context.type === 'quick-capture') {
+      await saveQuickCapture(data.get('captureText') ?? '');
+      return;
     }
+    if (context.type === 'tag-picker') {
+      state.editor.tags = data.getAll('tags');
+      captureEditorDraft();
+      closeSheet();
+      renderEditor();
+      return;
+    }
+    if (context.type === 'filter') {
+      state.filters[context.filterType] = data.get('filter');
+      closeSheet();
+      render();
+      return;
+    }
+    if (context.type === 'project-picker') {
+      const projectIds = data.getAll('projectIds');
+      if (!projectIds.length) { showToast('Wähle mindestens ein Projekt.'); return; }
+      const purpose = context.purpose;
+      const inboxId = context.inboxId;
+      const referenceId = context.referenceId;
+      closeSheet();
+      if (purpose === 'reference-projects') await assignReferenceProjects(referenceId, projectIds);
+      else {
+        state.sheet = { inboxId };
+        await processInboxWithProjects(purpose, projectIds);
+        state.sheet = null;
+      }
+    }
+  } finally {
+    if (form.isConnected) setFormBusy(form, false);
   }
 }
+
+const ASYNC_ACTION_LABELS = new Map([
+  ['share-backup', 'Bereitet Backup vor …'],
+  ['load-demo', 'Lädt Demodaten …'],
+  ['open-material-attachment', 'Öffnet …'],
+  ['copy-shortcut', 'Kopiert …'],
+]);
+
+const ASYNC_SHEET_ACTION_LABELS = new Map([
+  ['project-toggle-favorite', 'Aktualisiert …'],
+  ['inbox-share', 'Bereitet Teilen vor …'],
+  ['inbox-copy-link', 'Kopiert …'],
+  ['process-project', 'Verarbeitet …'],
+  ['reference-share', 'Bereitet Teilen vor …'],
+  ['reference-copy-link', 'Kopiert …'],
+  ['reference-return', 'Verschiebt …'],
+  ['reference-toggle-archive', 'Aktualisiert …'],
+  ['assign-existing-reference', 'Ordnet zu …'],
+  ['confirm-delete', 'Löscht …'],
+  ['confirm-clear-all', 'Löscht …'],
+  ['confirm-import', 'Importiert …'],
+]);
 
 function delegatedAction(event) {
   const target = event.target.closest('[data-action]');
   if (!target) return;
-  handleAction(target.dataset.action, target).catch((error) => showToast(error.message, 4800));
+  const action = target.dataset.action;
+  const operation = () => handleAction(action, target);
+  const label = ASYNC_ACTION_LABELS.get(action);
+  const task = label ? withBusyControl(target, operation, label) : operation();
+  Promise.resolve(task).catch((error) => showToast(error.message, 4800));
 }
 
 header.addEventListener('click', delegatedAction);
@@ -897,47 +1172,79 @@ main.addEventListener('input', (event) => {
   const key = keys[event.target.id];
   if (!key) return;
   state.search[key] = event.target.value;
-  const selection = [event.target.selectionStart, event.target.selectionEnd];
-  main.innerHTML = renderMain(state);
-  const input = main.querySelector(`#${event.target.id}`);
-  input?.focus();
-  input?.setSelectionRange(...selection);
+  window.clearTimeout(state.searchDebounce);
+  state.searchDebounce = window.setTimeout(() => {
+    const region = main.querySelector(`[data-search-results="${key}"]`);
+    if (region) {
+      region.innerHTML = renderSearchResults(state, key);
+      activateLazyImages(region);
+    }
+  }, 140);
 });
 nav.addEventListener('click', (event) => {
   const target = event.target.closest('[data-nav]');
   if (!target) return;
   navigateRoot(target.dataset.nav);
 });
-editorForm.addEventListener('submit', (event) => {
+editorForm.addEventListener('input', (event) => {
+  clearFieldValidation(event.target);
+  captureEditorDraft();
+});
+editorForm.addEventListener('change', () => captureEditorDraft());
+editorForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   editorError.hidden = true;
-  saveEditor(new FormData(editorForm)).catch((error) => {
+  if (!validateEditorForm()) return;
+  const formData = new FormData(editorForm);
+  setFormBusy(editorForm, true, 'Sichert …');
+  try {
+    await saveEditor(formData);
+  } catch (error) {
     editorError.textContent = error.message;
     editorError.hidden = false;
-  });
+  } finally {
+    setFormBusy(editorForm, false);
+  }
 });
 editorDialog.addEventListener('click', (event) => {
   const action = event.target.closest('[data-editor-action]')?.dataset.editorAction;
-  if (action === 'cancel') closeEditor();
+  if (action === 'cancel') {
+    captureEditorDraft();
+    closeEditor();
+  }
   if (action === 'choose-tags') openTagPicker();
   if (action === 'request-delete') {
     const entity = state.editor.entity;
     const kind = state.editor.type;
-    closeEditor();
+    closeEditor({ clearDraft: true });
     requestDelete(kind, entity.id, kind === 'project' ? 'Projekt' : kind === 'inbox' ? 'Eingangseintrag' : kind === 'reference' ? 'Referenz' : 'Eintrag');
   }
 });
+editorDialog.addEventListener('cancel', () => captureEditorDraft());
 editorDialog.addEventListener('close', () => {
   if (!actionDialog.open) document.documentElement.classList.remove('modal-open');
   if (!editorDialog.open && !actionDialog.open) state.editor = null;
+});
+actionDialog.addEventListener('input', (event) => {
+  if (event.target.name === 'captureText') persistCaptureDraft(event.target.value);
+});
+actionDialog.addEventListener('cancel', () => {
+  const capture = actionDialog.querySelector('[name="captureText"]');
+  if (capture) persistCaptureDraft(capture.value);
 });
 actionDialog.addEventListener('click', (event) => {
   if (event.target === actionDialog) { closeSheet(); return; }
   const target = event.target.closest('[data-sheet-action]');
   if (!target) return;
-  handleSheetAction(target.dataset.sheetAction, target).catch((error) => showToast(error.message, 4800));
+  const action = target.dataset.sheetAction;
+  const operation = () => handleSheetAction(action, target);
+  const label = ASYNC_SHEET_ACTION_LABELS.get(action);
+  const task = label ? withBusyControl(target, operation, label) : operation();
+  Promise.resolve(task).catch((error) => showToast(error.message, 4800));
 });
-actionDialog.addEventListener('submit', (event) => handleSheetSubmit(event).catch((error) => showToast(error.message, 4800)));
+actionDialog.addEventListener('submit', (event) => {
+  handleSheetSubmit(event).catch((error) => showToast(error.message, 4800));
+});
 actionDialog.addEventListener('close', () => {
   if (!editorDialog.open) document.documentElement.classList.remove('modal-open');
   if (!actionDialog.open) state.sheet = null;
@@ -959,10 +1266,34 @@ importInput.addEventListener('change', () => {
   importInput.value = '';
 });
 
+toast.addEventListener('click', (event) => {
+  if (!event.target.closest('[data-toast-action="run"]') || !showToast.action) return;
+  const action = showToast.action;
+  showToast.action = null;
+  toast.classList.remove('is-visible');
+  Promise.resolve(action()).catch((error) => showToast(error.message, 4800));
+});
+
 async function applyLaunchCommand() {
   const command = parseLaunchCommand(window.location.href);
   if (command.type === 'invalid') showToast(command.message, 4800);
   if (command.type === 'new-project') openEditor('project');
+  if (command.type === 'open-inbox') {
+    const item = state.inboxItems.find((entry) => entry.id === command.inboxId);
+    if (!item) showToast('Der Eingangseintrag wurde nicht gefunden.', 4800);
+    else {
+      state.navigation = pushView(createNavigationState('inbox'), 'inbox-detail', { inboxId: item.id });
+      render();
+    }
+  }
+  if (command.type === 'open-reference') {
+    const reference = state.references.find((entry) => entry.id === command.referenceId);
+    if (!reference) showToast('Die Referenz wurde nicht gefunden.', 4800);
+    else {
+      state.navigation = pushView(pushView(createNavigationState('projects'), 'library'), 'reference-detail', { referenceId: reference.id });
+      render();
+    }
+  }
   if (['open-project', 'new-bug', 'new-idea'].includes(command.type)) {
     const project = state.projects.find((item) => item.id === command.projectId);
     if (!project) showToast('Das angegebene Projekt wurde nicht gefunden.', 4800);
@@ -980,13 +1311,26 @@ async function applyLaunchCommand() {
 
 async function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
-  try { await navigator.serviceWorker.register(`./service-worker.js?v=${APP_VERSION}`, { updateViaCache: 'none' }); }
-  catch (error) { console.warn('Service Worker konnte nicht registriert werden:', error); }
+  try {
+    const registration = await navigator.serviceWorker.register(`./service-worker.js?v=${APP_VERSION}`, { updateViaCache: 'none' });
+    const announceUpdate = () => showToast('Neue Version verfügbar.', 7200, { label: 'Neu laden', run: () => window.location.reload() });
+    if (registration.waiting && navigator.serviceWorker.controller) announceUpdate();
+    registration.addEventListener('updatefound', () => {
+      const worker = registration.installing;
+      worker?.addEventListener('statechange', () => {
+        if (worker.state === 'installed' && navigator.serviceWorker.controller) announceUpdate();
+      });
+    });
+  } catch (error) {
+    console.warn('Service Worker konnte nicht registriert werden:', error);
+    showToast('Offline-Modus konnte nicht vorbereitet werden.', 4800);
+  }
 }
 
 async function bootstrap() {
   try {
     syncStatusBarStyle();
+    updateConnectionStatus();
     await repository.init();
     await repository.compactHistory();
     await refresh({ renderView: false });
@@ -1002,7 +1346,16 @@ async function bootstrap() {
 }
 
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', syncStatusBarStyle);
+window.addEventListener('offline', () => {
+  updateConnectionStatus();
+  showToast('Offline – Änderungen bleiben lokal gespeichert.', 4200);
+});
+window.addEventListener('online', () => {
+  updateConnectionStatus();
+  showToast('Wieder online.');
+});
 window.addEventListener('beforeunload', () => {
+  state.lazyImageObserver?.disconnect();
   for (const value of state.attachmentUrls.values()) URL.revokeObjectURL?.(value);
 });
 bootstrap();

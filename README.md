@@ -1,4 +1,4 @@
-# ProjectLog 4.0
+# ProjectLog 4.2
 
 ProjectLog ist ein lokales, offlinefähiges Projektjournal für eine einzelne Person. Die PWA benötigt kein Konto und kein Backend. Projekte, Bugs, Ideen, Eingangsmaterialien, Referenzen, Anhänge und Verlauf werden ausschließlich lokal gespeichert.
 
@@ -17,9 +17,9 @@ Die App besitzt zwei Hauptbereiche:
 
 **Referenzen**, Archiv, Backup und Einstellungen sind sekundäre Ansichten. Die Zwei-Tab-Bar hält den jeweiligen Hauptkontext Projekte oder Eingang stabil.
 
-## Designsystem 4.0
+## Designsystem 4.2
 
-ProjectLog 4.0 trennt vertraute iOS-Bedienmuster von einer eigenen ProjectLog-Identität:
+ProjectLog 4.2 trennt vertraute iOS-Bedienmuster von einer eigenen ProjectLog-Identität:
 
 - stabile Projektliste mit **Favoriten** und **Projekte**
 - keine automatisch springenden Projektbereiche
@@ -34,6 +34,33 @@ ProjectLog 4.0 trennt vertraute iOS-Bedienmuster von einer eigenen ProjectLog-Id
 - Light Mode, Dark Mode, erhöhter Kontrast und reduzierte Bewegung
 
 Die App bleibt technisch eine PWA. Native SwiftUI- oder Liquid-Glass-APIs werden nicht simuliert; CSS-Materialien und SVG-Symbole besitzen robuste Fallbacks.
+
+## UX- und Accessibility-Korrekturen 4.1
+
+- sichtbarer Tastaturfokus auf Toolbar, Tab-Bar, Listen und Formfeldern
+- Sitzungsentwürfe für Quick Capture und Editoren
+- eindeutige Busy-/Disabled-Zustände bei asynchronen Aktionen
+- Inline-Validierung mit feldbezogenen Meldungen und Fokus auf dem ersten Fehler
+- stabile Scrollposition beim Zurücknavigieren
+- entprellte Suche, die nur den Ergebnisbereich aktualisiert
+- echte Lazy-Aktivierung von Bildanhängen über `IntersectionObserver`
+- Offline- und Updatehinweise
+- kurze Rückgängig-Option nach Löschvorgängen
+- Deep Links für Eingangseinträge und Referenzen
+- Landscape-Layout sowie Tests mit 100 %, 140 % und 200 % Textskalierung
+- `prefers-contrast: more` und `prefers-reduced-motion`
+
+## Design-Craft-Korrekturen 4.2
+
+- Divider beginnen an der jeweiligen Inhaltsachse statt unter Icons oder Project Spine
+- gruppierte Listen verwenden radiusgetreue Maskierung und einen halbtransparenten Oberflächenring statt harter Außenborder
+- erste und letzte Listenzeile übernehmen die Außenradien ohne abgeschnittene Press- oder Fokuszustände
+- Quick-Capture- und Sheet-Fokus werden als inset Masken innerhalb der tatsächlichen Komponentengeometrie gezeichnet
+- Toolbar-Divider sind explizit vertikal zentriert
+- Pressfeedback skaliert Controls in 140 ms, ohne semantische Farben zu überschreiben
+- Materialflächen besitzen Fallbacks für reduzierte Transparenz
+- die Sheet-Kopfzeile bleibt auch bei 320 px und 200 % Textskalierung kollisionsfrei
+
 
 ## Project Spine
 
@@ -99,7 +126,7 @@ Anhänge sind auf **12 MB pro Datei** begrenzt. Das Änderungsprotokoll erfasst 
 
 ## Backup und Migration
 
-ProjectLog 4.0 verwendet weiterhin das kompatible Schema:
+ProjectLog 4.2 verwendet weiterhin das kompatible Schema:
 
 ```text
 projectlog.backup.v3
@@ -118,10 +145,10 @@ Vor einem Update sollte unter **Einstellungen → Backup exportieren** eine Sich
 5. **Teilen → Zum Home-Bildschirm → Hinzufügen** wählen.
 6. ProjectLog einmal online starten, damit die Offline-App-Shell gespeichert wird.
 
-ProjectLog 4.0 verwendet den Cache-Namen:
+ProjectLog 4.2 verwendet den Cache-Namen:
 
 ```text
-projectlog-shell-v4-0-0
+projectlog-shell-v4-2-0
 ```
 
 ## Apple Kurzbefehle
@@ -132,6 +159,8 @@ Die URL-Aktionen öffnen nur sichere Ansichten oder Erfassungsformulare:
 https://DEINE-ADRESSE/?action=new-project
 https://DEINE-ADRESSE/?action=new-bug&project=PRJ-12345678&title=Kurztitel
 https://DEINE-ADRESSE/?action=new-idea&project=PRJ-12345678&title=Kurztitel
+https://DEINE-ADRESSE/?action=open-inbox&inbox=INB-12345678
+https://DEINE-ADRESSE/?action=open-reference&reference=REF-12345678
 ```
 
 Die fertigen URLs stehen in der App unter **Einstellungen → Kurzbefehle**.
@@ -144,6 +173,8 @@ node tests/workflow.mjs
 python3 tests/render_static_qa.py
 python3 tests/render_large_text_qa.py
 python3 tests/e2e_v40.py
+python3 tests/e2e_v41_quality.py
+python3 tests/e2e_v42_craft.py
 ```
 
 `e2e_v40.py` bündelt die echten ES-Module ausschließlich für eine isolierte Browserprüfung mit Memory-Datentreiber. Der Produktionscode verwendet IndexedDB.
@@ -155,7 +186,9 @@ index.html                         App-Shell, Root-Tabs und Dialogcontainer
 styles.css                         Feature- und Layoutstile
 src/design/tokens.css              Farben, Typografie, Abstände und Materialtokens
 src/design/components.css          Project Spine, Navigation und UI-Primitiven
+src/design/accessibility.css       Fokus, Kontrast, Landscape, Busy- und Safe-Area-Zustände
 src/ui/primitives.js               wiederverwendbare gruppierte Listen und Spines
+src/drafts.js                      lokale Sitzungsentwürfe für Editor und Quick Capture
 src/app.js                         Workflowsteuerung und Ereignisbehandlung
 src/views.js                       Ansichtsrenderer
 src/forms.js                       kompakte Editoren

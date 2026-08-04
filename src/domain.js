@@ -1,4 +1,4 @@
-import { validateMaterialBackupData } from './materials.js?v=4.0.0';
+import { validateMaterialBackupData } from './materials.js?v=4.2.0';
 
 export const TAG_VALUES = Object.freeze([
   'feature',

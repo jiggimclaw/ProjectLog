@@ -1,4 +1,4 @@
-import { TAG_VALUES } from './domain.js?v=4.0.0';
+import { TAG_VALUES } from './domain.js?v=4.2.0';
 import {
   bugSeverityMeta,
   bugStatusMeta,
@@ -7,21 +7,28 @@ import {
   projectPriorityMeta,
   projectStatusMeta,
   tagMeta,
-} from './presentation.js?v=4.0.0';
-import { escapeHtml, optionList } from './view-helpers.js?v=4.0.0';
-import { icon } from './icons.js?v=4.0.0';
+} from './presentation.js?v=4.2.0';
+import { escapeHtml, optionList } from './view-helpers.js?v=4.2.0';
+import { icon } from './icons.js?v=4.2.0';
+
+function labelCopy(label, required) {
+  return `${escapeHtml(label)}${required ? '<span class="required-marker" aria-hidden="true">*</span><span class="visually-hidden"> Pflichtfeld</span>' : ''}`;
+}
+
+function fieldError(id) {
+  return `<span id="${escapeHtml(id)}-error" class="field-error" data-field-error="${escapeHtml(id)}" hidden></span>`;
+}
 
 function textField({ id, name, label, value = '', placeholder = '', max = 160, required = false, type = 'text' }) {
-  return `<label class="form-row text-form-row" for="${escapeHtml(id)}"><span>${escapeHtml(label)}</span><input id="${escapeHtml(id)}" name="${escapeHtml(name)}" type="${escapeHtml(type)}" maxlength="${max}" value="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}" ${required ? 'required' : ''} autocomplete="off"></label>`;
+  return `<div class="form-field"><label class="form-row text-form-row" for="${escapeHtml(id)}"><span>${labelCopy(label, required)}</span><input id="${escapeHtml(id)}" name="${escapeHtml(name)}" type="${escapeHtml(type)}" maxlength="${max}" value="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}" ${required ? 'required aria-required="true"' : ''} aria-describedby="${escapeHtml(id)}-error" autocomplete="off"></label>${fieldError(id)}</div>`;
 }
-
 
 function titleField({ id, name, label, value = '', placeholder = '', max = 160, required = false, type = 'text' }) {
-  return `<label class="form-block compact-text-block" for="${escapeHtml(id)}"><span>${escapeHtml(label)}</span><input id="${escapeHtml(id)}" name="${escapeHtml(name)}" type="${escapeHtml(type)}" maxlength="${max}" value="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}" ${required ? 'required' : ''} autocomplete="off"></label>`;
+  return `<div class="form-field"><label class="form-block compact-text-block" for="${escapeHtml(id)}"><span>${labelCopy(label, required)}</span><input id="${escapeHtml(id)}" name="${escapeHtml(name)}" type="${escapeHtml(type)}" maxlength="${max}" value="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}" ${required ? 'required aria-required="true"' : ''} aria-describedby="${escapeHtml(id)}-error" autocomplete="off"></label>${fieldError(id)}</div>`;
 }
 
-function textArea({ id, name, label, value = '', placeholder = '', max = 8000 }) {
-  return `<label class="form-block" for="${escapeHtml(id)}"><span>${escapeHtml(label)}</span><textarea id="${escapeHtml(id)}" name="${escapeHtml(name)}" maxlength="${max}" placeholder="${escapeHtml(placeholder)}">${escapeHtml(value)}</textarea></label>`;
+function textArea({ id, name, label, value = '', placeholder = '', max = 8000, required = false }) {
+  return `<div class="form-field"><label class="form-block" for="${escapeHtml(id)}"><span>${labelCopy(label, required)}</span><textarea id="${escapeHtml(id)}" name="${escapeHtml(name)}" maxlength="${max}" placeholder="${escapeHtml(placeholder)}" ${required ? 'required aria-required="true"' : ''} aria-describedby="${escapeHtml(id)}-error">${escapeHtml(value)}</textarea></label>${fieldError(id)}</div>`;
 }
 
 function selectRow({ id, name, label, meta, selected }) {

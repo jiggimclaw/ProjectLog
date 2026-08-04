@@ -1,4 +1,4 @@
-/* ProjectLog 4.0 component system */
+/* ProjectLog 4.2 component system */
 body { font-family: var(--font-body); }
 
 .root-header .header-title-group h1 {
@@ -21,11 +21,13 @@ body { font-family: var(--font-body); }
 .toolbar-actions.toolbar-cluster {
   gap: 0;
   overflow: hidden;
+  isolation: isolate;
   min-height: 44px;
   padding: 0 2px;
   border: 0.5px solid var(--control-border);
   border-radius: 999px;
   background: var(--control-glass);
+  background-clip: padding-box;
   -webkit-backdrop-filter: saturate(180%) blur(18px);
   backdrop-filter: saturate(180%) blur(18px);
   box-shadow: var(--shadow-control);
@@ -39,10 +41,13 @@ body { font-family: var(--font-body); }
 .toolbar-cluster .toolbar-button + .toolbar-button::before {
   content: "";
   position: absolute;
+  top: 50%;
   left: 0;
   width: 0.5px;
   height: 22px;
+  transform: translateY(-50%);
   background: var(--separator);
+  pointer-events: none;
 }
 .toolbar-button { position: relative; color: var(--interactive-text); }
 .toolbar-button.primary { color: var(--interactive-text); background: var(--interactive-soft); border-color: var(--interactive-border); }
@@ -62,11 +67,12 @@ body { font-family: var(--font-body); }
 .project-spine.priority-strategic { --spine-color: var(--project-priority-strategic); }
 .project-title-with-spine { display: grid; grid-template-columns: 4px minmax(0, 1fr); gap: 10px; align-items: stretch; }
 .project-title-with-spine .header-title-group { min-width: 0; }
+.reference-project-row { --divider-inset: 30px; }
 .reference-project-row .project-spine { min-height: 26px; }
 .history-spine { display: grid; grid-template-columns: 4px 1fr; gap: 10px; }
 .history-spine .project-spine { min-height: 38px; }
 
-.project-row { padding-left: 12px; }
+.project-row { --divider-inset: 29px; padding-left: 12px; }
 .project-row .project-spine { margin-right: 1px; }
 .favorite-mark { color: var(--interactive-text); }
 .row-meta.critical { color: var(--semantic-critical-text); }
@@ -92,6 +98,14 @@ body { font-family: var(--font-body); }
 .project-alert-row > .icon { color: var(--semantic-critical-text); }
 .project-alert-row strong { display: block; color: var(--semantic-critical-text); font-size: var(--text-meta); }
 .project-alert-row small { display: block; margin-top: 2px; color: var(--secondary); font-size: var(--text-caption); }
+
+.text-button {
+  justify-self: start;
+  min-width: 44px;
+  padding: 0 8px;
+  border-radius: 10px;
+}
+.text-button.strong { justify-self: end; }
 
 .quick-capture-form { padding: 0 10px 10px; }
 .quick-capture-field {
@@ -130,6 +144,9 @@ body { font-family: var(--font-body); }
 .quick-capture-footer { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
 
 .tab-bar {
+  overflow: hidden;
+  isolation: isolate;
+  background-clip: padding-box;
   width: min(calc(100% - 38px), var(--tab-width));
   height: 62px;
   bottom: calc(4px + env(safe-area-inset-bottom));
@@ -145,6 +162,11 @@ body { font-family: var(--font-body); }
   box-shadow: none;
 }
 
+.material-row { --divider-inset: 66px; }
+.entry-row { --divider-inset: 60px; }
+.detail-link-row { --divider-inset: 58px; }
+.settings-row { --divider-inset: 60px; }
+
 .settings-icon,
 .material-icon.type-link,
 .file-preview > .icon,
@@ -157,17 +179,17 @@ body { font-family: var(--font-body); }
   .header-row { gap: 5px; }
   .toolbar-actions.toolbar-cluster .toolbar-button { width: 44px; min-width: 44px; }
   .tab-bar { width: min(calc(100% - 24px), var(--tab-width)); }
+  .sheet-header {
+    padding-inline: 8px;
+    column-gap: 2px;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  }
+  .sheet-header h2 { font-size: 15px; white-space: nowrap; }
+  .sheet-header .text-button { padding-inline: 4px; font-size: 16px; white-space: nowrap; }
 }
 
 @media (min-width: 430px) {
   .app-main { padding-left: 20px; padding-right: 20px; }
-}
-
-@media (prefers-contrast: more) {
-  :root { --separator: var(--separator-strong); }
-  .grouped-list, .form-group, .sheet-action-list, .sheet-option-list { border-width: 1px; }
-  .tab-item.is-active { outline: 2px solid var(--interactive-text); outline-offset: -2px; }
-  .row-meta, .row-description, .header-subtitle { color: var(--text); }
 }
 
 @media (min-resolution: 2dppx) {
@@ -177,10 +199,6 @@ body { font-family: var(--font-body); }
 
 @supports not (backdrop-filter: blur(1px)) {
   .app-header, .tab-bar, .toolbar-actions.toolbar-cluster, .toolbar-button { background: var(--surface); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .project-spine, .tab-item, .toolbar-button { transition: none !important; }
 }
 
 .visually-hidden {
