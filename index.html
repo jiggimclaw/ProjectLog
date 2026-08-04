@@ -9,12 +9,12 @@
   <meta id="status-bar-style" name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="ProjectLog">
   <meta name="description" content="Lokale Projektzentrale für Projekte, Bugs, Ideen, Referenzen und rohe Eingangsmaterialien.">
-  <link rel="manifest" href="./manifest.webmanifest?v=4.2.0">
+  <link rel="manifest" href="./manifest.webmanifest?v=4.3.0">
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
-  <link rel="stylesheet" href="./styles.css?v=4.2.0">
-  <link rel="stylesheet" href="./src/design/tokens.css?v=4.2.0">
-  <link rel="stylesheet" href="./src/design/components.css?v=4.2.0">
-  <link rel="stylesheet" href="./src/design/accessibility.css?v=4.2.0">
+  <link rel="stylesheet" href="./styles.css?v=4.3.0">
+  <link rel="stylesheet" href="./src/design/tokens.css?v=4.3.0">
+  <link rel="stylesheet" href="./src/design/components.css?v=4.3.0">
+  <link rel="stylesheet" href="./src/design/accessibility.css?v=4.3.0">
   <title>ProjectLog</title>
 </head>
 <body>
@@ -33,7 +33,7 @@
 
   <dialog id="editor-dialog" class="sheet-dialog" aria-labelledby="editor-title">
     <form id="editor-form" method="dialog" novalidate>
-      <div class="sheet-handle" aria-hidden="true"></div>
+      <div class="sheet-handle" data-sheet-drag-handle aria-hidden="true"></div>
       <header class="sheet-header">
         <button type="button" class="text-button" data-editor-action="cancel">Abbrechen</button>
         <h2 id="editor-title">Eintrag</h2>
@@ -55,6 +55,6 @@
   <input id="attachment-file" type="file" accept="application/pdf,text/plain,text/markdown,application/json,.pdf,.txt,.md,.json" multiple hidden>
   <input id="import-file" type="file" accept="application/json,.json" hidden>
   <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
-  <script type="module" src="./src/app.js?v=4.2.0"></script>
+  <script type="module" src="./src/app.js?v=4.3.0"></script>
 </body>
 </html>

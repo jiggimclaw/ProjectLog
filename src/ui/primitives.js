@@ -1,4 +1,4 @@
-import { escapeHtml } from '../view-helpers.js?v=4.2.0';
+import { escapeHtml } from '../view-helpers.js?v=4.3.0';
 
 const PRIORITIES = new Set(['low', 'normal', 'high', 'strategic']);
 

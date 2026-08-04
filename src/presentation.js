@@ -13,6 +13,26 @@ export const projectPriorityMeta = Object.freeze({
   strategic: { label: 'Strategisch', className: 'priority-strategic' },
 });
 
+
+export const projectIconMeta = Object.freeze({
+  folder: { label: 'Ordner', icon: 'folder' },
+  bulb: { label: 'Idee', icon: 'bulb' },
+  cpu: { label: 'Technik', icon: 'cpu' },
+  paintbrush: { label: 'Design', icon: 'paintbrush' },
+  sparkles: { label: 'Konzept', icon: 'sparkles' },
+  'check-badge': { label: 'Qualität', icon: 'check-badge' },
+});
+
+export const projectColorMeta = Object.freeze({
+  purple: { label: 'Lila', className: 'project-color-purple' },
+  blue: { label: 'Blau', className: 'project-color-blue' },
+  teal: { label: 'Türkis', className: 'project-color-teal' },
+  green: { label: 'Grün', className: 'project-color-green' },
+  orange: { label: 'Orange', className: 'project-color-orange' },
+  red: { label: 'Rot', className: 'project-color-red' },
+  graphite: { label: 'Graphit', className: 'project-color-graphite' },
+});
+
 export const bugStatusMeta = Object.freeze({
   new: { label: 'Neu' },
   review: { label: 'In Prüfung' },
@@ -38,7 +58,7 @@ export const ideaStatusMeta = Object.freeze({
 export const ideaValueMeta = Object.freeze({
   small: { label: 'Klein', icon: 'bulb', className: 'idea-small' },
   relevant: { label: 'Relevant', icon: 'bulb-filled', className: 'idea-relevant' },
-  strategic: { label: 'Strategisch', icon: 'sparkles', className: 'idea-strategic' },
+  strategic: { label: 'Strategisch', icon: 'flame-filled', className: 'idea-strategic' },
 });
 
 export const tagMeta = Object.freeze({

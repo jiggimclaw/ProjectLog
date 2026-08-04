@@ -1,4 +1,4 @@
-# ProjectLog 4.2
+# ProjectLog 4.3
 
 ProjectLog ist ein lokales, offlinefähiges Projektjournal für eine einzelne Person. Die PWA benötigt kein Konto und kein Backend. Projekte, Bugs, Ideen, Eingangsmaterialien, Referenzen, Anhänge und Verlauf werden ausschließlich lokal gespeichert.
 
@@ -17,9 +17,9 @@ Die App besitzt zwei Hauptbereiche:
 
 **Referenzen**, Archiv, Backup und Einstellungen sind sekundäre Ansichten. Die Zwei-Tab-Bar hält den jeweiligen Hauptkontext Projekte oder Eingang stabil.
 
-## Designsystem 4.2
+## Designsystem 4.3
 
-ProjectLog 4.2 trennt vertraute iOS-Bedienmuster von einer eigenen ProjectLog-Identität:
+ProjectLog 4.3 trennt vertraute iOS-Bedienmuster von einer eigenen ProjectLog-Identität:
 
 - stabile Projektliste mit **Favoriten** und **Projekte**
 - keine automatisch springenden Projektbereiche
@@ -56,11 +56,23 @@ Die App bleibt technisch eine PWA. Native SwiftUI- oder Liquid-Glass-APIs werden
 - gruppierte Listen verwenden radiusgetreue Maskierung und einen halbtransparenten Oberflächenring statt harter Außenborder
 - erste und letzte Listenzeile übernehmen die Außenradien ohne abgeschnittene Press- oder Fokuszustände
 - Quick-Capture- und Sheet-Fokus werden als inset Masken innerhalb der tatsächlichen Komponentengeometrie gezeichnet
-- Toolbar-Divider sind explizit vertikal zentriert
+- Divider folgen ihren Inhaltsachsen; interne Toolbar-Trenner werden nicht verwendet
 - Pressfeedback skaliert Controls in 140 ms, ohne semantische Farben zu überschreiben
 - Materialflächen besitzen Fallbacks für reduzierte Transparenz
 - die Sheet-Kopfzeile bleibt auch bei 320 px und 200 % Textskalierung kollisionsfrei
 
+## Feedback- und Auswahlkorrekturen 4.3
+
+- Ideen besitzen in der sichtbaren Oberfläche keinen Status mehr
+- der Nutzen einer Idee wird über **Klein**, **Relevant** und **Strategisch** mit eigenen Symbolen dargestellt
+- **Relevant** verwendet eine gelbe gefüllte Glühbirne, **Strategisch** ein rotes Feuer
+- Bug-, Ideen- und Referenzfilter liegen als direkte Auswahlleiste oberhalb der jeweiligen Liste
+- Filteraktionen wurden aus den oberen Toolbars entfernt
+- Toolbar-Cluster verwenden Abstand statt eines internen dünnen Dividers
+- der Sheet-Griff kann nach unten gezogen werden und schließt das Sheet ab einer klaren Distanz oder Wischgeschwindigkeit
+- Titelzeilen reservieren ausreichend vertikalen Raum, damit Ober- und Unterlängen nicht abgeschnitten werden
+- Projekte erhalten bei der Erstellung ein festes Icon und eine Farbe; diese Identität erscheint in Listen, Details und Zuordnungen
+- bestehende Projekte werden kompatibel mit **Ordner + Lila** ergänzt
 
 ## Project Spine
 
@@ -126,7 +138,7 @@ Anhänge sind auf **12 MB pro Datei** begrenzt. Das Änderungsprotokoll erfasst 
 
 ## Backup und Migration
 
-ProjectLog 4.2 verwendet weiterhin das kompatible Schema:
+ProjectLog 4.3 verwendet weiterhin das kompatible Schema:
 
 ```text
 projectlog.backup.v3
@@ -145,10 +157,10 @@ Vor einem Update sollte unter **Einstellungen → Backup exportieren** eine Sich
 5. **Teilen → Zum Home-Bildschirm → Hinzufügen** wählen.
 6. ProjectLog einmal online starten, damit die Offline-App-Shell gespeichert wird.
 
-ProjectLog 4.2 verwendet den Cache-Namen:
+ProjectLog 4.3 verwendet den Cache-Namen:
 
 ```text
-projectlog-shell-v4-2-0
+projectlog-shell-v4-3-0
 ```
 
 ## Apple Kurzbefehle
@@ -175,6 +187,7 @@ python3 tests/render_large_text_qa.py
 python3 tests/e2e_v40.py
 python3 tests/e2e_v41_quality.py
 python3 tests/e2e_v42_craft.py
+python3 tests/e2e_v43_feedback.py
 ```
 
 `e2e_v40.py` bündelt die echten ES-Module ausschließlich für eine isolierte Browserprüfung mit Memory-Datentreiber. Der Produktionscode verwendet IndexedDB.
@@ -192,7 +205,7 @@ src/drafts.js                      lokale Sitzungsentwürfe für Editor und Quic
 src/app.js                         Workflowsteuerung und Ereignisbehandlung
 src/views.js                       Ansichtsrenderer
 src/forms.js                       kompakte Editoren
-src/sheets.js                      Quick Capture, Auswahl-, Filter- und Bestätigungssheets
+src/sheets.js                      Quick Capture, Auswahl- und Bestätigungssheets
 src/navigation.js                  Root- und Push-Navigation
 src/materials.js                   Eingang, Referenzen und Anhänge
 src/domain.js                      Projekte, Bugs, Ideen und Backup-Schema

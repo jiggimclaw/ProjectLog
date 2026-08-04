@@ -1,4 +1,4 @@
-import { validateMaterialBackupData } from './materials.js?v=4.2.0';
+import { validateMaterialBackupData } from './materials.js?v=4.3.0';
 
 export const TAG_VALUES = Object.freeze([
   'feature',
@@ -11,6 +11,8 @@ export const TAG_VALUES = Object.freeze([
 
 export const PROJECT_STATUSES = Object.freeze(['planned', 'active', 'paused', 'completed', 'archived']);
 export const PROJECT_PRIORITIES = Object.freeze(['low', 'normal', 'high', 'strategic']);
+export const PROJECT_ICON_VALUES = Object.freeze(['folder', 'bulb', 'cpu', 'paintbrush', 'sparkles', 'check-badge']);
+export const PROJECT_COLOR_VALUES = Object.freeze(['purple', 'blue', 'teal', 'green', 'orange', 'red', 'graphite']);
 export const BUG_STATUSES = Object.freeze(['new', 'review', 'active', 'resolved', 'rejected']);
 export const BUG_SEVERITIES = Object.freeze(['minor', 'major', 'critical']);
 export const IDEA_STATUSES = Object.freeze(['new', 'reviewed', 'planned', 'implemented', 'rejected']);
@@ -19,6 +21,8 @@ export const START_VIEWS = Object.freeze(['projects', 'inbox']);
 
 const PROJECT_STATUS_SET = new Set(PROJECT_STATUSES);
 const PROJECT_PRIORITY_SET = new Set(PROJECT_PRIORITIES);
+const PROJECT_ICON_SET = new Set(PROJECT_ICON_VALUES);
+const PROJECT_COLOR_SET = new Set(PROJECT_COLOR_VALUES);
 const BUG_STATUS_SET = new Set(BUG_STATUSES);
 const BUG_SEVERITY_SET = new Set(BUG_SEVERITIES);
 const IDEA_STATUS_SET = new Set(IDEA_STATUSES);
@@ -87,12 +91,16 @@ export function createProject(input, options = {}) {
   const status = input?.status ?? 'active';
   const priority = input?.priority ?? 'normal';
   const favorite = input?.favorite ?? false;
+  const icon = input?.icon ?? 'folder';
+  const color = input?.color ?? 'purple';
   return {
     id: assertId(options.id ?? defaultProjectId(), 'project id'),
     name: assertText(input?.name ?? '', 'Project name', { min: 1, max: 80 }),
     description: assertText(input?.description ?? '', 'Project description', { max: 2000 }),
     status: assertEnum(status, PROJECT_STATUS_SET, 'project status'),
     priority: assertEnum(priority, PROJECT_PRIORITY_SET, 'project priority'),
+    icon: assertEnum(icon, PROJECT_ICON_SET, 'project icon'),
+    color: assertEnum(color, PROJECT_COLOR_SET, 'project color'),
     favorite: assertBoolean(favorite, 'Project favorite'),
     createdAt: now,
     updatedAt: now,
@@ -161,6 +169,8 @@ function validateProject(project) {
       description: project?.description ?? '',
       status: project?.status,
       priority: project?.priority,
+      icon: project?.icon ?? 'folder',
+      color: project?.color ?? 'purple',
       favorite: project?.favorite,
     },
     { id: project?.id, now: project?.createdAt },
@@ -274,6 +284,8 @@ export function migrateBackupV1(value) {
     description: project.description ?? '',
     status: 'active',
     priority: 'normal',
+    icon: 'folder',
+    color: 'purple',
     favorite: false,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,

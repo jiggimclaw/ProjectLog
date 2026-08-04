@@ -36,6 +36,22 @@
   --project-priority-high: #7b526e;
   --project-priority-strategic: #4f2448;
 
+  /* Project identity — descriptive, never status */
+  --project-color-purple: #8e36b8;
+  --project-color-blue: #0066cc;
+  --project-color-teal: #008c95;
+  --project-color-green: #27833f;
+  --project-color-orange: #c45100;
+  --project-color-red: #c92832;
+  --project-color-graphite: #636366;
+
+  /* Idea value */
+  --idea-small: #636366;
+  --idea-relevant: #9a7400;
+  --idea-relevant-soft: rgba(255, 204, 0, 0.16);
+  --idea-strategic: #d70015;
+  --idea-strategic-soft: rgba(215, 0, 21, 0.1);
+
   /* Glass/navigation */
   --glass: rgba(248, 248, 250, 0.78);
   --control-glass: rgba(255, 255, 255, 0.7);
@@ -116,6 +132,18 @@
     --project-priority-normal: #aeaeb2;
     --project-priority-high: #b983a7;
     --project-priority-strategic: #d2a4c8;
+    --project-color-purple: #d08aff;
+    --project-color-blue: #64a8ff;
+    --project-color-teal: #5dd8df;
+    --project-color-green: #63d47c;
+    --project-color-orange: #ff9f52;
+    --project-color-red: #ff6961;
+    --project-color-graphite: #aeaeb2;
+    --idea-small: #aeaeb2;
+    --idea-relevant: #ffd60a;
+    --idea-relevant-soft: rgba(255, 214, 10, 0.18);
+    --idea-strategic: #ff6961;
+    --idea-strategic-soft: rgba(255, 105, 97, 0.16);
     --glass: rgba(30, 30, 32, 0.76);
     --control-glass: rgba(55, 55, 58, 0.7);
     --control-border: rgba(255, 255, 255, 0.1);

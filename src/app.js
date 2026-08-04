@@ -1,6 +1,6 @@
-import { buildBackupFilename } from './backup.js?v=4.2.0';
-import { createBug, createIdea, createProject, updateEntity } from './domain.js?v=4.2.0';
-import { editorTitle, renderEditorFields, selectedTagsFromEditor } from './forms.js?v=4.2.0';
+import { buildBackupFilename } from './backup.js?v=4.3.0';
+import { createBug, createIdea, createProject, updateEntity } from './domain.js?v=4.3.0';
+import { editorTitle, renderEditorFields, selectedTagsFromEditor } from './forms.js?v=4.3.0';
 import {
   clearCaptureDraft,
   clearEditorDraft,
@@ -8,14 +8,14 @@ import {
   persistEditorDraft,
   restoreCaptureDraft,
   restoreEditorDraft,
-} from './drafts.js?v=4.2.0';
-import { icon } from './icons.js?v=4.2.0';
+} from './drafts.js?v=4.3.0';
+import { icon } from './icons.js?v=4.3.0';
 import {
   createAttachment,
   createInboxItem,
   createReference,
   updateMaterial,
-} from './materials.js?v=4.2.0';
+} from './materials.js?v=4.3.0';
 import {
   activeRootTab,
   currentInboxForView,
@@ -25,7 +25,7 @@ import {
   renderMain,
   renderSearchResults,
   tabBarVisible,
-} from './views.js?v=4.2.0';
+} from './views.js?v=4.3.0';
 import {
   createNavigationState,
   currentView,
@@ -33,20 +33,22 @@ import {
   pushView,
   replaceView,
   resetRootView,
-} from './navigation.js?v=4.2.0';
-import { parseLaunchCommand } from './router.js?v=4.2.0';
+} from './navigation.js?v=4.3.0';
+import { parseLaunchCommand } from './router.js?v=4.3.0';
 import {
   actionSheet,
   quickCaptureSheet,
   confirmSheet,
-  filterSheet,
+  ideaValuePickerSheet,
+  projectColorPickerSheet,
+  projectIconPickerSheet,
   projectPickerSheet,
   tagPickerSheet,
-} from './sheets.js?v=4.2.0';
-import { ProjectLogRepository } from './storage.js?v=4.2.0';
-import { escapeHtml } from './view-helpers.js?v=4.2.0';
+} from './sheets.js?v=4.3.0';
+import { ProjectLogRepository } from './storage.js?v=4.3.0';
+import { escapeHtml } from './view-helpers.js?v=4.3.0';
 
-export const APP_VERSION = '4.2.0';
+export const APP_VERSION = '4.3.0';
 
 const repository = new ProjectLogRepository();
 const LEGACY_EXTRAS_KEY = 'projectlog.extras.v3';
@@ -63,7 +65,7 @@ const state = {
   monthlySummaries: [],
   settings: { startView: 'projects', includeArchived: false },
   search: { projects: '', inbox: '', library: '' },
-  filters: { bugs: 'open', ideas: 'open', library: 'all' },
+  filters: { bugs: 'open', ideas: 'all', library: 'all' },
   attachmentUrls: new Map(),
   lazyImageObserver: null,
   editor: null,
@@ -343,6 +345,69 @@ function closeSheet() {
   state.sheet = null;
 }
 
+const SHEET_DISMISS_THRESHOLD = 84;
+const SHEET_DISMISS_VELOCITY = 0.55;
+
+function resetDraggedSheet(dialog) {
+  dialog.classList.remove('is-dragging', 'is-dismissing');
+  dialog.style.removeProperty('transform');
+  dialog.style.removeProperty('transition');
+}
+
+function installSheetDragDismiss(dialog, onDismiss) {
+  let drag = null;
+  const reduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  dialog.addEventListener('pointerdown', (event) => {
+    const handle = event.target.closest('[data-sheet-drag-handle]');
+    if (!handle || event.button !== 0 || dialog.querySelector('[aria-busy="true"]')) return;
+    drag = { pointerId: event.pointerId, startY: event.clientY, currentY: event.clientY, startedAt: performance.now() };
+    handle.setPointerCapture?.(event.pointerId);
+    dialog.classList.add('is-dragging');
+    dialog.style.transition = 'none';
+    event.preventDefault();
+  });
+
+  dialog.addEventListener('pointermove', (event) => {
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    drag.currentY = event.clientY;
+    const distance = Math.max(0, drag.currentY - drag.startY);
+    dialog.style.transform = `translateY(${distance}px)`;
+    event.preventDefault();
+  });
+
+  const finish = (event) => {
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    const distance = Math.max(0, drag.currentY - drag.startY);
+    const elapsed = Math.max(1, performance.now() - drag.startedAt);
+    const velocity = distance / elapsed;
+    const dismiss = distance >= SHEET_DISMISS_THRESHOLD || velocity >= SHEET_DISMISS_VELOCITY;
+    drag = null;
+    dialog.classList.remove('is-dragging');
+    if (dismiss) {
+      dialog.classList.add('is-dismissing');
+      if (reduceMotion()) {
+        resetDraggedSheet(dialog);
+        onDismiss();
+      } else {
+        dialog.style.transition = 'transform 180ms var(--ease-drawer)';
+        dialog.style.transform = 'translateY(105%)';
+        window.setTimeout(() => {
+          resetDraggedSheet(dialog);
+          onDismiss();
+        }, 170);
+      }
+    } else {
+      dialog.style.transition = reduceMotion() ? 'none' : 'transform 180ms var(--ease-out)';
+      dialog.style.transform = 'translateY(0)';
+      window.setTimeout(() => resetDraggedSheet(dialog), reduceMotion() ? 0 : 180);
+    }
+  };
+
+  dialog.addEventListener('pointerup', finish);
+  dialog.addEventListener('pointercancel', finish);
+}
+
 function openGlobalMenu() {
   openSheet(actionSheet({
     title: 'ProjectLog',
@@ -424,12 +489,18 @@ function openEditor(type, entity = null, options = {}) {
     materialType: options.materialType,
     prefill: options.prefill ?? {},
     tags: [...(entity?.tags ?? options.tags ?? [])],
+    projectIcon: entity?.icon ?? options.icon ?? 'folder',
+    projectColor: entity?.color ?? options.color ?? 'purple',
+    ideaValue: entity?.value ?? options.value ?? 'relevant',
     draft: {},
   };
   const restored = restoreEditorDraft(editor);
   if (restored) {
     editor.draft = restored;
     if (Array.isArray(restored.tags)) editor.tags = [...restored.tags];
+    if (restored.icon) editor.projectIcon = restored.icon;
+    if (restored.color) editor.projectColor = restored.color;
+    if (restored.value) editor.ideaValue = restored.value;
   }
   state.editor = editor;
   renderEditor();
@@ -456,6 +527,8 @@ async function saveEditor(formData) {
       description: formData.get('description'),
       status: formData.get('status'),
       priority: formData.get('priority'),
+      icon: formData.get('icon'),
+      color: formData.get('color'),
       favorite: formData.get('favorite') === 'on',
     };
     const saved = editor.entity ? updateEntity('project', editor.entity, values, now) : createProject(values, { now });
@@ -482,7 +555,6 @@ async function saveEditor(formData) {
     const values = {
       title: formData.get('title'),
       description: formData.get('description'),
-      status: formData.get('status'),
       value: formData.get('value'),
       tags,
     };
@@ -563,6 +635,21 @@ function openTagPicker() {
   openSheet(tagPickerSheet({ selected: state.editor.tags }), { type: 'tag-picker' });
 }
 
+function openProjectIconPicker() {
+  captureEditorDraft();
+  openSheet(projectIconPickerSheet({ selected: state.editor.projectIcon, color: state.editor.projectColor }), { type: 'project-icon-picker' });
+}
+
+function openProjectColorPicker() {
+  captureEditorDraft();
+  openSheet(projectColorPickerSheet({ selected: state.editor.projectColor, projectIcon: state.editor.projectIcon }), { type: 'project-color-picker' });
+}
+
+function openIdeaValuePicker() {
+  captureEditorDraft();
+  openSheet(ideaValuePickerSheet({ selected: state.editor.ideaValue }), { type: 'idea-value-picker' });
+}
+
 function openCompose() {
   const draft = restoreCaptureDraft();
   openSheet(quickCaptureSheet({ value: draft }), { type: 'quick-capture' });
@@ -627,34 +714,6 @@ function openProcessSheet() {
       { action: 'process-reference', label: 'Als Referenz', detail: 'Einem oder mehreren Projekten zuordnen', iconName: 'link' },
     ],
   }), { type: 'process', inboxId: item.id });
-}
-
-function openFilter(type) {
-  const configs = {
-    bugs: {
-      title: 'Bugs filtern',
-      options: [
-        { value: 'open', label: 'Offen' }, { value: 'critical', label: 'Kritisch' },
-        { value: 'resolved', label: 'Behoben' }, { value: 'all', label: 'Alle' },
-      ],
-    },
-    ideas: {
-      title: 'Ideen filtern',
-      options: [
-        { value: 'open', label: 'Offen' }, { value: 'strategic', label: 'Strategisch' },
-        { value: 'implemented', label: 'Umgesetzt' }, { value: 'all', label: 'Alle' },
-      ],
-    },
-    library: {
-      title: 'Referenzen filtern',
-      options: [
-        { value: 'all', label: 'Alle' }, { value: 'link', label: 'Links' },
-        { value: 'image', label: 'Bilder' }, { value: 'file', label: 'Dateien' }, { value: 'note', label: 'Notizen' },
-      ],
-    },
-  };
-  const config = configs[type];
-  openSheet(filterSheet({ ...config, selected: state.filters[type] }), { type: 'filter', filterType: type });
 }
 
 function openProjectPicker({ purpose, multiple, selected = [], title }) {
@@ -877,14 +936,16 @@ async function executeImport() {
 async function loadDemo() {
   const now = new Date().toISOString();
   const projects = [
-    createProject({ name: 'ProjectLog', description: 'Lokale Projektzentrale für Projekte, Bugs, Ideen und Referenzen.', status: 'active', priority: 'strategic', favorite: true }, { id: 'PRJ-DEMO01', now }),
-    createProject({ name: 'PlasmaLog', description: 'Bestands- und Planungsapp für Plasma.', status: 'active', priority: 'high', favorite: false }, { id: 'PRJ-DEMO02', now }),
-    createProject({ name: 'CortexOS', description: 'Persönliches System- und Automationsprojekt.', status: 'planned', priority: 'strategic', favorite: false }, { id: 'PRJ-DEMO03', now }),
+    createProject({ name: 'ProjectLog', description: 'Lokale Projektzentrale für Projekte, Bugs, Ideen und Referenzen.', status: 'active', priority: 'strategic', icon: 'paintbrush', color: 'purple', favorite: true }, { id: 'PRJ-DEMO01', now }),
+    createProject({ name: 'PlasmaLog', description: 'Bestands- und Planungsapp für Plasma.', status: 'active', priority: 'high', icon: 'check-badge', color: 'blue', favorite: false }, { id: 'PRJ-DEMO02', now }),
+    createProject({ name: 'CortexOS', description: 'Persönliches System- und Automationsprojekt.', status: 'planned', priority: 'strategic', icon: 'cpu', color: 'orange', favorite: false }, { id: 'PRJ-DEMO03', now }),
   ];
   for (const project of projects) await repository.saveEntity('project', project);
   await repository.saveEntity('bug', createBug({ projectId: projects[0].id, title: 'Datenexport schlägt fehl', description: 'Backupablauf auf iOS prüfen.', status: 'review', severity: 'critical', tags: ['quality'] }, { sequence: await repository.nextSequence('bug'), now }));
   await repository.saveEntity('bug', createBug({ projectId: projects[1].id, title: 'Heatmap reagiert träge', status: 'active', severity: 'major', tags: ['feature'] }, { sequence: await repository.nextSequence('bug'), now }));
-  await repository.saveEntity('idea', createIdea({ projectId: projects[0].id, title: 'Referenzbibliothek', description: 'Projektübergreifende Sicht auf Material.', status: 'planned', value: 'strategic', tags: ['design'] }, { sequence: await repository.nextSequence('idea'), now }));
+  await repository.saveEntity('idea', createIdea({ projectId: projects[0].id, title: 'Referenzbibliothek', description: 'Projektübergreifende Sicht auf Material.', value: 'strategic', tags: ['design'] }, { sequence: await repository.nextSequence('idea'), now }));
+  await repository.saveEntity('idea', createIdea({ projectId: projects[0].id, title: 'Schnellerfassung verfeinern', description: 'Eingang noch reibungsloser machen.', value: 'relevant', tags: ['feature'] }, { sequence: await repository.nextSequence('idea'), now }));
+  await repository.saveEntity('idea', createIdea({ projectId: projects[2].id, title: 'Kleine Benennungsprüfung', description: 'Einzelne Labels im System prüfen.', value: 'small', tags: ['quality'] }, { sequence: await repository.nextSequence('idea'), now }));
   const reference = createReference({ type: 'link', title: 'Apple Human Interface Guidelines', body: 'Referenz für Navigation und gruppierte Listen.', url: 'https://developer.apple.com/design/human-interface-guidelines/', projectIds: [projects[0].id, projects[1].id], tags: ['design'] }, { id: 'REF-DEMO01', now });
   await repository.saveReference(reference);
   await repository.saveInboxItem(createInboxItem({ type: 'note', title: 'Homegym-App vereinfachen', body: 'Nur Tagesplan und Übungsprotokoll.', tags: ['feature'] }, { id: 'INB-DEMO01', now }));
@@ -1006,6 +1067,7 @@ async function handleAction(action, target) {
     case 'open-global-menu': openGlobalMenu(); break;
     case 'navigate-back': navigateBack(); break;
     case 'open-project': navigatePush('project', { projectId: target.dataset.id }); break;
+    case 'set-list-filter': state.filters[target.dataset.listFilter] = target.dataset.value; render(); break;
     case 'open-project-bugs': navigatePush('bugs', { projectId: currentProjectForView(state).id }); break;
     case 'open-project-ideas': navigatePush('ideas', { projectId: currentProjectForView(state).id }); break;
     case 'open-project-references': navigatePush('project-references', { projectId: currentProjectForView(state).id }); break;
@@ -1015,9 +1077,6 @@ async function handleAction(action, target) {
     case 'new-idea': openEditor('idea', null, { projectId: currentProjectForView(state).id }); break;
     case 'edit-bug': openEditor('bug', state.bugs.find((item) => item.id === target.dataset.id)); break;
     case 'edit-idea': openEditor('idea', state.ideas.find((item) => item.id === target.dataset.id)); break;
-    case 'open-bug-filter': openFilter('bugs'); break;
-    case 'open-idea-filter': openFilter('ideas'); break;
-    case 'open-library-filter': openFilter('library'); break;
     case 'open-inbox-item': navigatePush('inbox-detail', { inboxId: target.dataset.inboxId }); break;
     case 'edit-inbox-item': openEditor('inbox', currentInboxForView(state)); break;
     case 'open-inbox-menu': openInboxMenu(); break;
@@ -1094,7 +1153,7 @@ async function handleSheetSubmit(event) {
   const form = event.target;
   const context = state.sheet;
   const data = new FormData(form);
-  const busyLabel = context?.type === 'quick-capture' ? 'Sichert …' : context?.type === 'filter' ? 'Wendet an …' : 'Übernimmt …';
+  const busyLabel = context?.type === 'quick-capture' ? 'Sichert …' : 'Übernimmt …';
   setFormBusy(form, true, busyLabel);
   try {
     if (context.type === 'quick-capture') {
@@ -1108,10 +1167,28 @@ async function handleSheetSubmit(event) {
       renderEditor();
       return;
     }
-    if (context.type === 'filter') {
-      state.filters[context.filterType] = data.get('filter');
+    if (context.type === 'project-icon-picker') {
+      state.editor.projectIcon = data.get('selection') ?? state.editor.projectIcon;
+      state.editor.draft.icon = state.editor.projectIcon;
+      persistEditorDraft(state.editor, { ...state.editor.draft, tags: state.editor.tags });
       closeSheet();
-      render();
+      renderEditor();
+      return;
+    }
+    if (context.type === 'project-color-picker') {
+      state.editor.projectColor = data.get('selection') ?? state.editor.projectColor;
+      state.editor.draft.color = state.editor.projectColor;
+      persistEditorDraft(state.editor, { ...state.editor.draft, tags: state.editor.tags });
+      closeSheet();
+      renderEditor();
+      return;
+    }
+    if (context.type === 'idea-value-picker') {
+      state.editor.ideaValue = data.get('selection') ?? state.editor.ideaValue;
+      state.editor.draft.value = state.editor.ideaValue;
+      persistEditorDraft(state.editor, { ...state.editor.draft, tags: state.editor.tags });
+      closeSheet();
+      renderEditor();
       return;
     }
     if (context.type === 'project-picker') {
@@ -1165,6 +1242,16 @@ function delegatedAction(event) {
   Promise.resolve(task).catch((error) => showToast(error.message, 4800));
 }
 
+installSheetDragDismiss(actionDialog, () => {
+  const capture = actionDialog.querySelector('[name="captureText"]');
+  if (capture) persistCaptureDraft(capture.value);
+  closeSheet();
+});
+installSheetDragDismiss(editorDialog, () => {
+  captureEditorDraft();
+  closeEditor();
+});
+
 header.addEventListener('click', delegatedAction);
 main.addEventListener('click', delegatedAction);
 main.addEventListener('input', (event) => {
@@ -1213,6 +1300,9 @@ editorDialog.addEventListener('click', (event) => {
     closeEditor();
   }
   if (action === 'choose-tags') openTagPicker();
+  if (action === 'choose-project-icon') openProjectIconPicker();
+  if (action === 'choose-project-color') openProjectColorPicker();
+  if (action === 'choose-idea-value') openIdeaValuePicker();
   if (action === 'request-delete') {
     const entity = state.editor.entity;
     const kind = state.editor.type;
@@ -1222,6 +1312,7 @@ editorDialog.addEventListener('click', (event) => {
 });
 editorDialog.addEventListener('cancel', () => captureEditorDraft());
 editorDialog.addEventListener('close', () => {
+  resetDraggedSheet(editorDialog);
   if (!actionDialog.open) document.documentElement.classList.remove('modal-open');
   if (!editorDialog.open && !actionDialog.open) state.editor = null;
 });
@@ -1246,6 +1337,7 @@ actionDialog.addEventListener('submit', (event) => {
   handleSheetSubmit(event).catch((error) => showToast(error.message, 4800));
 });
 actionDialog.addEventListener('close', () => {
+  resetDraggedSheet(actionDialog);
   if (!editorDialog.open) document.documentElement.classList.remove('modal-open');
   if (!actionDialog.open) state.sheet = null;
 });

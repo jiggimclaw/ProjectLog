@@ -41,7 +41,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   align-items: center;
   gap: 8px;
 }
-.root-header { min-height: 60px; grid-template-columns: minmax(0, 1fr) auto; }
+.root-header { min-height: 64px; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
 .root-header .header-leading { display: none; }
 .detail-header { grid-template-columns: 44px minmax(0, 1fr) auto; }
 .detail-header .header-title-group h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.022em; }
@@ -51,7 +51,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .header-title-group h1 {
   margin: 0;
   font-size: 20px;
-  line-height: 1.08;
+  line-height: 1.16;
+  padding-block: 2px;
   font-weight: 700;
   letter-spacing: -0.022em;
   white-space: nowrap;
@@ -458,7 +459,29 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .action-dialog { width: min(calc(100% - 16px), 520px); margin-bottom: calc(8px + env(safe-area-inset-bottom)); border-radius: var(--radius-sheet); }
 .sheet-dialog::backdrop, .action-dialog::backdrop { background: rgba(0, 0, 0, 0.32); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); }
 .sheet-dialog form { margin: 0; }
-.sheet-handle { width: 36px; height: 5px; margin: 8px auto 4px; border-radius: 999px; background: var(--separator); }
+.sheet-handle {
+  position: relative;
+  width: 64px;
+  height: 24px;
+  margin: 0 auto;
+  border-radius: 999px;
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+}
+.sheet-handle::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 8px;
+  width: 36px;
+  height: 5px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: var(--separator-strong);
+}
+.is-dragging .sheet-handle { cursor: grabbing; }
+
 .sheet-header {
   min-height: 54px;
   padding: 0 12px;

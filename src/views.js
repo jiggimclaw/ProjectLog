@@ -1,18 +1,19 @@
-import { calculateProjectHealth } from './analytics.js?v=4.2.0';
-import { icon } from './icons.js?v=4.2.0';
+import { calculateProjectHealth } from './analytics.js?v=4.3.0';
+import { icon } from './icons.js?v=4.3.0';
 import {
   bugSeverityMeta,
   bugStatusMeta,
   healthMeta,
-  ideaStatusMeta,
   ideaValueMeta,
+  projectColorMeta,
+  projectIconMeta,
   projectPriorityMeta,
   projectStatusMeta,
   tagMeta,
-} from './presentation.js?v=4.2.0';
-import { currentView, isRootView } from './navigation.js?v=4.2.0';
-import { escapeHtml, formatDateTime, formatRelativeDay } from './view-helpers.js?v=4.2.0';
-import { groupedList, projectSpine, toolbarCluster } from './ui/primitives.js?v=4.2.0';
+} from './presentation.js?v=4.3.0';
+import { currentView, isRootView } from './navigation.js?v=4.3.0';
+import { escapeHtml, formatDateTime, formatRelativeDay } from './view-helpers.js?v=4.3.0';
+import { groupedList, projectSpine, toolbarCluster } from './ui/primitives.js?v=4.3.0';
 
 const materialMeta = Object.freeze({
   note: { label: 'Notiz', icon: 'document' },
@@ -71,6 +72,12 @@ function projectHeaderSubtitle(project) {
   return `${projectStatusMeta[project.status].label} · ${projectPriorityMeta[project.priority].label}`;
 }
 
+function projectIdentitySymbol(project, className = '') {
+  const iconMeta = projectIconMeta[project?.icon] ?? projectIconMeta.folder;
+  const colorMeta = projectColorMeta[project?.color] ?? projectColorMeta.purple;
+  return `<span class="project-identity-symbol ${escapeHtml(colorMeta.className)} ${escapeHtml(className)}">${icon(iconMeta.icon)}</span>`;
+}
+
 export function renderHeader(state) {
   const view = currentView(state.navigation);
   const root = isRootView(state.navigation);
@@ -95,11 +102,11 @@ export function renderHeader(state) {
     } else if (view.name === 'bugs') {
       title = 'Bugs';
       subtitle = projectById(state, view.params.projectId)?.name ?? '';
-      actions = toolbarCluster(`${buttonIcon('open-bug-filter', 'sliders', 'Bugs filtern')}${buttonIcon('new-bug', 'plus', 'Neuer Bug', 'primary')}`);
+      actions = buttonIcon('new-bug', 'plus', 'Neuer Bug', 'primary');
     } else if (view.name === 'ideas') {
       title = 'Ideen';
       subtitle = projectById(state, view.params.projectId)?.name ?? '';
-      actions = toolbarCluster(`${buttonIcon('open-idea-filter', 'sliders', 'Ideen filtern')}${buttonIcon('new-idea', 'plus', 'Neue Idee', 'primary')}`);
+      actions = buttonIcon('new-idea', 'plus', 'Neue Idee', 'primary');
     } else if (view.name === 'project-references') {
       title = 'Referenzen';
       subtitle = projectById(state, view.params.projectId)?.name ?? '';
@@ -119,7 +126,6 @@ export function renderHeader(state) {
       actions = toolbarCluster(`${buttonIcon('edit-reference', 'edit', 'Referenz bearbeiten')}${buttonIcon('open-reference-menu', 'ellipsis', 'Weitere Aktionen')}`);
     } else if (view.name === 'library') {
       title = 'Referenzen';
-      actions = buttonIcon('open-library-filter', 'sliders', 'Referenzen filtern');
     } else if (view.name === 'archive') {
       title = 'Archiv';
     } else if (view.name === 'settings') {
@@ -131,7 +137,7 @@ export function renderHeader(state) {
 
   const project = view.name === 'project' ? projectById(state, view.params.projectId) : null;
   const titleGroup = project
-    ? `<div class="project-title-with-spine">${projectSpine(project.priority)}<div class="header-title-group"><h1>${escapeHtml(title)}</h1>${subtitle ? `<p class="header-subtitle">${escapeHtml(subtitle)}</p>` : ''}</div></div>`
+    ? `<div class="project-title-with-spine">${projectSpine(project.priority)}${projectIdentitySymbol(project, 'header-project-symbol')}<div class="header-title-group"><h1>${escapeHtml(title)}</h1>${subtitle ? `<p class="header-subtitle">${escapeHtml(subtitle)}</p>` : ''}</div></div>`
     : `<div class="header-title-group"><h1>${escapeHtml(title)}</h1>${subtitle ? `<p class="header-subtitle">${escapeHtml(subtitle)}</p>` : ''}</div>`;
   return `
     <div class="header-row ${root ? 'root-header' : 'detail-header'}">
@@ -184,6 +190,7 @@ function projectRow(state, project) {
   const meta = projectMeta(state, project);
   return `<button class="list-row project-row" type="button" data-action="open-project" data-id="${escapeHtml(project.id)}">
     ${projectSpine(project.priority)}
+    ${projectIdentitySymbol(project)}
     <span class="row-main">
       <span class="row-title-line"><strong>${escapeHtml(project.name)}</strong>${project.favorite ? `<span class="favorite-mark">${icon('pin-filled')}</span>` : ''}</span>
       <span class="row-meta ${escapeHtml(meta.tone)}">${escapeHtml(meta.text)}</span>
@@ -313,7 +320,7 @@ function recentEntryRow(entry) {
   const iconName = isBug ? bugSeverityMeta[entry.severity].icon : ideaValueMeta[entry.value].icon;
   const meta = isBug
     ? `${bugStatusMeta[entry.status].label} · ${bugSeverityMeta[entry.severity].label}`
-    : `${ideaStatusMeta[entry.status].label} · ${ideaValueMeta[entry.value].label}`;
+    : `${ideaValueMeta[entry.value].label}`;
   return `<button class="list-row entry-row" type="button" data-action="${isBug ? 'edit-bug' : 'edit-idea'}" data-id="${escapeHtml(entry.id)}">
     <span class="entry-symbol ${isBug ? 'bug-symbol' : 'idea-symbol'}">${icon(iconName)}</span>
     <span class="row-main"><strong class="two-line-title">${escapeHtml(entry.title)}</strong><span class="row-meta">${escapeHtml(meta)} · ${escapeHtml(relative(entry.updatedAt))}</span></span>
@@ -349,18 +356,45 @@ function entryRow(item, type) {
   const isBug = type === 'bug';
   const iconName = isBug ? bugSeverityMeta[item.severity].icon : ideaValueMeta[item.value].icon;
   const primaryMeta = isBug ? bugSeverityMeta[item.severity].label : ideaValueMeta[item.value].label;
-  const secondaryMeta = isBug ? bugStatusMeta[item.status].label : ideaStatusMeta[item.status].label;
+  const secondaryMeta = isBug ? ` · ${bugStatusMeta[item.status].label}` : '';
   return `<button class="list-row entry-row" type="button" data-action="edit-${type}" data-id="${escapeHtml(item.id)}">
     <span class="entry-symbol ${isBug ? `severity-${item.severity}` : `idea-${item.value}`}">${icon(iconName)}</span>
-    <span class="row-main"><strong class="two-line-title">${escapeHtml(item.title)}</strong><span class="row-meta">${escapeHtml(primaryMeta)} · ${escapeHtml(secondaryMeta)} · ${escapeHtml(relative(item.updatedAt))}</span>${neutralTags(item.tags)}</span>
+    <span class="row-main"><strong class="two-line-title">${escapeHtml(item.title)}</strong><span class="row-meta">${escapeHtml(primaryMeta)}${escapeHtml(secondaryMeta)} · ${escapeHtml(relative(item.updatedAt))}</span>${neutralTags(item.tags)}</span>
     <span class="row-chevron">${icon('chevron')}</span>
   </button>`;
+}
+
+const listFilterOptions = Object.freeze({
+  bugs: [
+    { value: 'open', label: 'Offen' },
+    { value: 'critical', label: 'Kritisch' },
+    { value: 'resolved', label: 'Behoben' },
+    { value: 'all', label: 'Alle' },
+  ],
+  ideas: [
+    { value: 'all', label: 'Alle' },
+    { value: 'small', label: 'Klein' },
+    { value: 'relevant', label: 'Relevant' },
+    { value: 'strategic', label: 'Strategisch' },
+  ],
+  library: [
+    { value: 'all', label: 'Alle' },
+    { value: 'link', label: 'Links' },
+    { value: 'image', label: 'Bilder' },
+    { value: 'file', label: 'Dateien' },
+    { value: 'note', label: 'Notizen' },
+  ],
+});
+
+function inlineFilterBar(type, selected) {
+  const label = type === 'bugs' ? 'Bugs filtern' : type === 'ideas' ? 'Ideen filtern' : 'Referenzen filtern';
+  return `<div class="inline-filter-bar" role="group" aria-label="${label}">${listFilterOptions[type].map((option) => `<button type="button" class="inline-filter-option ${selected === option.value ? 'is-selected' : ''}" data-action="set-list-filter" data-list-filter="${type}" data-value="${option.value}" aria-pressed="${selected === option.value ? 'true' : 'false'}">${escapeHtml(option.label)}</button>`).join('')}</div>`;
 }
 
 function filterLabel(type, value) {
   const maps = {
     bugs: { open: 'Offene Bugs', critical: 'Kritische Bugs', resolved: 'Behobene Bugs', all: 'Alle Bugs' },
-    ideas: { open: 'Offene Ideen', strategic: 'Strategische Ideen', implemented: 'Umgesetzte Ideen', all: 'Alle Ideen' },
+    ideas: { all: 'Alle Ideen', small: 'Kleine Ideen', relevant: 'Relevante Ideen', strategic: 'Strategische Ideen' },
     library: { all: 'Alle Referenzen', link: 'Links', image: 'Bilder', file: 'Dateien', note: 'Notizen' },
   };
   return maps[type][value] ?? 'Alle';
@@ -373,13 +407,11 @@ function renderEntryList(state, type, projectId) {
     if (filter === 'open') items = items.filter((item) => !['resolved', 'rejected'].includes(item.status));
     if (filter === 'critical') items = items.filter((item) => item.severity === 'critical' && !['resolved', 'rejected'].includes(item.status));
     if (filter === 'resolved') items = items.filter((item) => item.status === 'resolved');
-  } else {
-    if (filter === 'open') items = items.filter((item) => !['implemented', 'rejected'].includes(item.status));
-    if (filter === 'strategic') items = items.filter((item) => item.value === 'strategic');
-    if (filter === 'implemented') items = items.filter((item) => item.status === 'implemented');
+  } else if (filter !== 'all') {
+    items = items.filter((item) => item.value === filter);
   }
   items.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  return `<div class="result-summary"><span>${escapeHtml(filterLabel(type, filter))}</span><strong>${items.length}</strong></div>${items.length ? `<div class="grouped-list">${items.map((item) => entryRow(item, type === 'bugs' ? 'bug' : 'idea')).join('')}</div>` : `<p class="empty-copy">Keine Einträge in diesem Filter.</p>`}`;
+  return `${inlineFilterBar(type, filter)}<div class="result-summary"><span>${escapeHtml(filterLabel(type, filter))}</span><strong>${items.length}</strong></div>${items.length ? `<div class="grouped-list">${items.map((item) => entryRow(item, type === 'bugs' ? 'bug' : 'idea')).join('')}</div>` : `<p class="empty-copy">Keine Einträge in diesem Filter.</p>`}`;
 }
 
 function referenceRow(reference, state) {
@@ -446,7 +478,7 @@ function renderReferenceDetail(state, referenceId) {
   if (!reference) return emptyState({ iconName: 'link', title: 'Referenz nicht gefunden', copy: 'Die Referenz wurde möglicherweise entfernt.' });
   const projectRows = reference.projectIds.map((id) => {
     const project = projectById(state, id);
-    return project ? `<button class="list-row compact-row reference-project-row" type="button" data-action="open-project" data-id="${escapeHtml(id)}">${projectSpine(project.priority)}<span class="row-main"><strong>${escapeHtml(project.name)}</strong></span><span class="row-chevron">${icon('chevron')}</span></button>` : '';
+    return project ? `<button class="list-row compact-row reference-project-row" type="button" data-action="open-project" data-id="${escapeHtml(id)}">${projectSpine(project.priority)}${projectIdentitySymbol(project)}<span class="row-main"><strong>${escapeHtml(project.name)}</strong></span><span class="row-chevron">${icon('chevron')}</span></button>` : '';
   }).join('');
   return `${renderMaterialPreview(reference, state)}${groupedSection('Details', materialInfoRows(reference))}${groupedSection('Projekte', projectRows)}<div class="detail-button-stack"><button class="secondary-wide-action" type="button" data-action="assign-reference-projects">Projektzuordnung ändern</button>${reference.type === 'link' ? '<button class="secondary-wide-action" type="button" data-action="open-reference-link">Link öffnen</button>' : ''}</div>`;
 }
@@ -463,7 +495,7 @@ function renderLibraryResults(state) {
 }
 
 function renderLibrary(state) {
-  return `${searchField('library-search', 'Referenzen durchsuchen', state.search.library)}<div data-search-results="library" role="region" aria-live="polite" aria-label="Referenz-Suchergebnisse">${renderLibraryResults(state)}</div>`;
+  return `${searchField('library-search', 'Referenzen durchsuchen', state.search.library)}${inlineFilterBar('library', state.filters.library)}<div data-search-results="library" role="region" aria-live="polite" aria-label="Referenz-Suchergebnisse">${renderLibraryResults(state)}</div>`;
 }
 
 export function renderSearchResults(state, key) {
@@ -497,7 +529,7 @@ function renderSettings(state) {
   return `${groupedSection('Daten & Backup', [
     settingsRow({ action: 'share-backup', iconName: 'export', title: 'Backup exportieren', subtitle: 'Projekte, Eingang, Referenzen und Anhänge' }),
     settingsRow({ action: 'choose-import', iconName: 'import', title: 'Backup importieren', subtitle: 'Bestehenden lokalen Bestand ersetzen' }),
-  ].join(''))}${groupedSection('Automation', settingsRow({ action: 'open-shortcuts', iconName: 'link', title: 'Kurzbefehle', subtitle: 'Sichere URLs für schnelle Erfassung' }))}${groupedSection('Entwickleroptionen', settingsRow({ action: 'load-demo', iconName: 'sparkles', title: 'Demodaten hinzufügen', subtitle: 'Testportfolio für die Oberfläche' }))}${groupedSection('Lokale Daten', settingsRow({ action: 'request-clear-all', iconName: 'trash', title: 'Alle lokalen Daten löschen', subtitle: 'Mit kurzer Rückgängig-Option', destructive: true }))}${groupedSection('Über ProjectLog', staticSettingsRow({ iconName: 'info', title: 'ProjectLog 4.2.0', subtitle: 'Lokal · ohne Konto · ohne Telemetrie', accessory: formatBytes(state.attachments.reduce((sum, item) => sum + item.size, 0)) }))}`;
+  ].join(''))}${groupedSection('Automation', settingsRow({ action: 'open-shortcuts', iconName: 'link', title: 'Kurzbefehle', subtitle: 'Sichere URLs für schnelle Erfassung' }))}${groupedSection('Entwickleroptionen', settingsRow({ action: 'load-demo', iconName: 'sparkles', title: 'Demodaten hinzufügen', subtitle: 'Testportfolio für die Oberfläche' }))}${groupedSection('Lokale Daten', settingsRow({ action: 'request-clear-all', iconName: 'trash', title: 'Alle lokalen Daten löschen', subtitle: 'Mit kurzer Rückgängig-Option', destructive: true }))}${groupedSection('Über ProjectLog', staticSettingsRow({ iconName: 'info', title: 'ProjectLog 4.3.0', subtitle: 'Lokal · ohne Konto · ohne Telemetrie', accessory: formatBytes(state.attachments.reduce((sum, item) => sum + item.size, 0)) }))}`;
 }
 
 function renderShortcuts(state) {

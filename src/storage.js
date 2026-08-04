@@ -1,6 +1,6 @@
-import { buildBackup, validateBackup } from './domain.js?v=4.2.0';
-import { compactEvents, createEntityCreatedEvent, deriveEntityEvents } from './events.js?v=4.2.0';
-import { deserializeAttachment, serializeAttachment } from './materials.js?v=4.2.0';
+import { buildBackup, validateBackup } from './domain.js?v=4.3.0';
+import { compactEvents, createEntityCreatedEvent, deriveEntityEvents } from './events.js?v=4.3.0';
+import { deserializeAttachment, serializeAttachment } from './materials.js?v=4.3.0';
 
 const ENTITY_STORES = new Set(['projects', 'bugs', 'ideas']);
 const MATERIAL_STORES = new Set(['inboxItems', 'references', 'attachments']);

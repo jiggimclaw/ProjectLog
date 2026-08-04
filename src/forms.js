@@ -1,15 +1,16 @@
-import { TAG_VALUES } from './domain.js?v=4.2.0';
+import { TAG_VALUES } from './domain.js?v=4.3.0';
 import {
   bugSeverityMeta,
   bugStatusMeta,
-  ideaStatusMeta,
   ideaValueMeta,
+  projectColorMeta,
+  projectIconMeta,
   projectPriorityMeta,
   projectStatusMeta,
   tagMeta,
-} from './presentation.js?v=4.2.0';
-import { escapeHtml, optionList } from './view-helpers.js?v=4.2.0';
-import { icon } from './icons.js?v=4.2.0';
+} from './presentation.js?v=4.3.0';
+import { escapeHtml, optionList } from './view-helpers.js?v=4.3.0';
+import { icon } from './icons.js?v=4.3.0';
 
 function labelCopy(label, required) {
   return `${escapeHtml(label)}${required ? '<span class="required-marker" aria-hidden="true">*</span><span class="visually-hidden"> Pflichtfeld</span>' : ''}`;
@@ -52,6 +53,22 @@ function favoriteRow(value) {
   return `<label class="form-row toggle-form-row"><span>Favorit</span><input type="checkbox" name="favorite" ${value ? 'checked' : ''}><span class="switch-control" aria-hidden="true"></span></label>`;
 }
 
+function projectIconRow(selected, color) {
+  const meta = projectIconMeta[selected] ?? projectIconMeta.folder;
+  const colorMeta = projectColorMeta[color] ?? projectColorMeta.purple;
+  return `<button class="form-row navigation-form-row" type="button" data-editor-action="choose-project-icon"><span>Icon</span><span class="form-row-value appearance-value"><span class="project-identity-symbol ${escapeHtml(colorMeta.className)}">${icon(meta.icon)}</span><span>${escapeHtml(meta.label)}</span>${icon('chevron')}</span></button>`;
+}
+
+function projectColorRow(selected) {
+  const meta = projectColorMeta[selected] ?? projectColorMeta.purple;
+  return `<button class="form-row navigation-form-row" type="button" data-editor-action="choose-project-color"><span>Farbe</span><span class="form-row-value appearance-value"><span class="project-color-swatch ${escapeHtml(meta.className)}" aria-hidden="true"></span><span>${escapeHtml(meta.label)}</span>${icon('chevron')}</span></button>`;
+}
+
+function ideaValueRow(selected) {
+  const meta = ideaValueMeta[selected] ?? ideaValueMeta.relevant;
+  return `<button class="form-row navigation-form-row" type="button" data-editor-action="choose-idea-value"><span>Nutzen</span><span class="form-row-value idea-value-accessory"><span class="idea-value-symbol ${escapeHtml(meta.className)}">${icon(meta.icon)}</span><span>${escapeHtml(meta.label)}</span>${icon('chevron')}</span></button>`;
+}
+
 export function editorTitle(editor) {
   const editing = Boolean(editor.entity);
   const labels = {
@@ -68,13 +85,16 @@ export function renderEditorFields(editor) {
   const entity = { ...(editor.entity ?? {}), ...(editor.draft ?? {}) };
   const selectedTags = editor.tags ?? entity.tags ?? [];
   if (editor.type === 'project') {
-    return `${titleField({ id: 'field-name', name: 'name', label: 'Name', value: entity.name, max: 80, required: true })}${textArea({ id: 'field-description', name: 'description', label: 'Beschreibung', value: entity.description, placeholder: 'Ziel, Umfang und Kontext', max: 2000 })}${grouped(`${selectRow({ id: 'field-status', name: 'status', label: 'Status', meta: projectStatusMeta, selected: entity.status ?? 'active' })}${selectRow({ id: 'field-priority', name: 'priority', label: 'Priorität', meta: projectPriorityMeta, selected: entity.priority ?? 'normal' })}${favoriteRow(entity.favorite)}`)}`;
+    const selectedIcon = editor.projectIcon ?? entity.icon ?? 'folder';
+    const selectedColor = editor.projectColor ?? entity.color ?? 'purple';
+    return `${titleField({ id: 'field-name', name: 'name', label: 'Name', value: entity.name, max: 80, required: true })}${textArea({ id: 'field-description', name: 'description', label: 'Beschreibung', value: entity.description, placeholder: 'Ziel, Umfang und Kontext', max: 2000 })}<input type="hidden" name="icon" value="${escapeHtml(selectedIcon)}"><input type="hidden" name="color" value="${escapeHtml(selectedColor)}">${grouped(`${projectIconRow(selectedIcon, selectedColor)}${projectColorRow(selectedColor)}${selectRow({ id: 'field-status', name: 'status', label: 'Status', meta: projectStatusMeta, selected: entity.status ?? 'active' })}${selectRow({ id: 'field-priority', name: 'priority', label: 'Priorität', meta: projectPriorityMeta, selected: entity.priority ?? 'normal' })}${favoriteRow(entity.favorite)}`)}`;
   }
   if (editor.type === 'bug') {
     return `${titleField({ id: 'field-title', name: 'title', label: 'Titel', value: entity.title ?? editor.prefill?.title, max: 120, required: true })}${textArea({ id: 'field-description', name: 'description', label: 'Beschreibung', value: entity.description, placeholder: 'Beobachtung, Auswirkung und Reproduktion', max: 4000 })}${grouped(`${selectRow({ id: 'field-status', name: 'status', label: 'Status', meta: bugStatusMeta, selected: entity.status ?? 'new' })}${selectRow({ id: 'field-severity', name: 'severity', label: 'Schweregrad', meta: bugSeverityMeta, selected: entity.severity ?? 'major' })}${tagRow(selectedTags)}`)}`;
   }
   if (editor.type === 'idea') {
-    return `${titleField({ id: 'field-title', name: 'title', label: 'Titel', value: entity.title ?? editor.prefill?.title, max: 120, required: true })}${textArea({ id: 'field-description', name: 'description', label: 'Beschreibung', value: entity.description, placeholder: 'Nutzen, Kontext und mögliche Ausgestaltung', max: 4000 })}${grouped(`${selectRow({ id: 'field-status', name: 'status', label: 'Status', meta: ideaStatusMeta, selected: entity.status ?? 'new' })}${selectRow({ id: 'field-value', name: 'value', label: 'Nutzen', meta: ideaValueMeta, selected: entity.value ?? 'relevant' })}${tagRow(selectedTags)}`)}`;
+    const selectedValue = editor.ideaValue ?? entity.value ?? 'relevant';
+    return `${titleField({ id: 'field-title', name: 'title', label: 'Titel', value: entity.title ?? editor.prefill?.title, max: 120, required: true })}${textArea({ id: 'field-description', name: 'description', label: 'Beschreibung', value: entity.description, placeholder: 'Nutzen, Kontext und mögliche Ausgestaltung', max: 4000 })}<input type="hidden" name="value" value="${escapeHtml(selectedValue)}">${grouped(`${ideaValueRow(selectedValue)}${tagRow(selectedTags)}`)}`;
   }
   if (editor.type === 'inbox') {
     const materialType = entity.type ?? editor.materialType ?? 'note';

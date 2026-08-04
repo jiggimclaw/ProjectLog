@@ -1,11 +1,16 @@
-import { icon } from './icons.js?v=4.2.0';
-import { tagMeta } from './presentation.js?v=4.2.0';
-import { escapeHtml } from './view-helpers.js?v=4.2.0';
-import { TAG_VALUES } from './domain.js?v=4.2.0';
+import { icon } from './icons.js?v=4.3.0';
+import {
+  ideaValueMeta,
+  projectColorMeta,
+  projectIconMeta,
+  tagMeta,
+} from './presentation.js?v=4.3.0';
+import { escapeHtml } from './view-helpers.js?v=4.3.0';
+import { PROJECT_COLOR_VALUES, PROJECT_ICON_VALUES, TAG_VALUES } from './domain.js?v=4.3.0';
 
 function shell({ title, message = '', body = '', footer = '' }) {
   return `
-    <div class="sheet-handle" aria-hidden="true"></div>
+    <div class="sheet-handle" data-sheet-drag-handle aria-hidden="true"></div>
     <header class="action-sheet-header">
       <h2 id="action-sheet-title">${escapeHtml(title)}</h2>
       ${message ? `<p>${escapeHtml(message)}</p>` : ''}
@@ -17,7 +22,7 @@ function shell({ title, message = '', body = '', footer = '' }) {
 export function actionSheet({ title, message = '', actions = [] }) {
   const body = `<div class="sheet-action-list">${actions.map((entry) => `
     <button type="button" class="sheet-action ${entry.destructive ? 'sheet-action-danger' : ''}" data-sheet-action="${escapeHtml(entry.action)}" ${entry.value != null ? `data-value="${escapeHtml(String(entry.value))}"` : ''}>
-      ${entry.iconName ? `<span class="sheet-action-icon">${icon(entry.iconName)}</span>` : ''}
+      ${entry.iconName ? `<span class="sheet-action-icon ${entry.iconClass ?? ''}">${icon(entry.iconName)}</span>` : ''}
       <span class="sheet-action-copy"><strong>${escapeHtml(entry.label)}</strong>${entry.detail ? `<span>${escapeHtml(entry.detail)}</span>` : ''}</span>
       ${entry.accessory ? `<span class="sheet-action-accessory">${escapeHtml(entry.accessory)}</span>` : ''}
     </button>`).join('')}</div>`;
@@ -43,12 +48,19 @@ export function quickCaptureSheet({ value = '' } = {}) {
   return shell({ title: 'Festhalten', message: 'Text und Links werden automatisch erkannt.', body });
 }
 
+function projectIdentity(project) {
+  const iconMeta = projectIconMeta[project.icon] ?? projectIconMeta.folder;
+  const colorMeta = projectColorMeta[project.color] ?? projectColorMeta.purple;
+  return `<span class="project-identity-symbol ${escapeHtml(colorMeta.className)}">${icon(iconMeta.icon)}</span>`;
+}
+
 export function projectPickerSheet({ projects, selected = [], multiple = false, purpose = 'reference', title = 'Projekt auswählen' }) {
   const type = multiple ? 'checkbox' : 'radio';
   const body = `<form id="sheet-form" class="sheet-selection-form" data-purpose="${escapeHtml(purpose)}">
     <div class="sheet-option-list">${projects.map((project) => `
-      <label class="sheet-option">
+      <label class="sheet-option project-sheet-option">
         <input type="${type}" name="projectIds" value="${escapeHtml(project.id)}" ${selected.includes(project.id) ? 'checked' : ''}>
+        ${projectIdentity(project)}
         <span class="sheet-option-main"><strong>${escapeHtml(project.name)}</strong></span>
         <span class="sheet-checkmark">${icon('check')}</span>
       </label>`).join('')}</div>
@@ -71,17 +83,56 @@ export function tagPickerSheet({ selected = [] }) {
   return shell({ title: 'Tags', body, footer: '<button type="button" class="sheet-cancel" data-sheet-action="cancel">Abbrechen</button>' });
 }
 
-export function filterSheet({ title, options, selected }) {
-  const body = `<form id="sheet-form" class="sheet-selection-form" data-purpose="filter">
+function visualPickerSheet({ title, purpose, options, selected }) {
+  const body = `<form id="sheet-form" class="sheet-selection-form visual-picker-form" data-purpose="${escapeHtml(purpose)}">
     <div class="sheet-option-list">${options.map((option) => `
-      <label class="sheet-option">
-        <input type="radio" name="filter" value="${escapeHtml(option.value)}" ${selected === option.value ? 'checked' : ''}>
-        <span class="sheet-option-main"><strong>${escapeHtml(option.label)}</strong>${option.detail ? `<span>${escapeHtml(option.detail)}</span>` : ''}</span>
+      <label class="sheet-option visual-picker-option">
+        <input type="radio" name="selection" value="${escapeHtml(option.value)}" ${selected === option.value ? 'checked' : ''}>
+        ${option.visual}
+        <span class="sheet-option-main"><strong>${escapeHtml(option.label)}</strong></span>
         <span class="sheet-checkmark">${icon('check')}</span>
       </label>`).join('')}</div>
-    <button class="sheet-primary" type="submit">Anwenden</button>
+    <button class="sheet-primary" type="submit">Übernehmen</button>
   </form>`;
   return shell({ title, body, footer: '<button type="button" class="sheet-cancel" data-sheet-action="cancel">Abbrechen</button>' });
+}
+
+export function projectIconPickerSheet({ selected = 'folder', color = 'purple' } = {}) {
+  const colorMeta = projectColorMeta[color] ?? projectColorMeta.purple;
+  return visualPickerSheet({
+    title: 'Projekticon',
+    purpose: 'project-icon',
+    selected,
+    options: PROJECT_ICON_VALUES.map((value) => {
+      const meta = projectIconMeta[value];
+      return { value, label: meta.label, visual: `<span class="project-identity-symbol ${escapeHtml(colorMeta.className)}">${icon(meta.icon)}</span>` };
+    }),
+  });
+}
+
+export function projectColorPickerSheet({ selected = 'purple', projectIcon = 'folder' } = {}) {
+  const iconMeta = projectIconMeta[projectIcon] ?? projectIconMeta.folder;
+  return visualPickerSheet({
+    title: 'Projektfarbe',
+    purpose: 'project-color',
+    selected,
+    options: PROJECT_COLOR_VALUES.map((value) => {
+      const meta = projectColorMeta[value];
+      return { value, label: meta.label, visual: `<span class="project-identity-symbol ${escapeHtml(meta.className)}">${icon(iconMeta.icon)}</span>` };
+    }),
+  });
+}
+
+export function ideaValuePickerSheet({ selected = 'relevant' } = {}) {
+  return visualPickerSheet({
+    title: 'Nutzen',
+    purpose: 'idea-value',
+    selected,
+    options: ['small', 'relevant', 'strategic'].map((value) => {
+      const meta = ideaValueMeta[value];
+      return { value, label: meta.label, visual: `<span class="idea-value-symbol ${escapeHtml(meta.className)}">${icon(meta.icon)}</span>` };
+    }),
+  });
 }
 
 export function confirmSheet({ title, message, confirmLabel, action }) {

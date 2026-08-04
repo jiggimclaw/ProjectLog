@@ -242,3 +242,16 @@ input::placeholder, textarea::placeholder { color: var(--placeholder); opacity: 
   background: var(--separator);
 }
 [data-search-results] { min-height: 1px; }
+
+/* ProjectLog 4.3 — compact inline selection remains fully keyboard-visible. */
+.inline-filter-option:focus-visible {
+  outline: none !important;
+  box-shadow: inset 0 0 0 3px var(--interactive-text) !important;
+}
+.inline-filter-option:active:not(:disabled) {
+  background: var(--surface-pressed);
+}
+.inline-filter-option.is-selected:active:not(:disabled) {
+  background: var(--surface);
+  filter: brightness(0.97);
+}

@@ -1,5 +1,5 @@
-const CACHE_NAME = 'projectlog-shell-v4-2-0';
-const VERSION = '4.2.0';
+const CACHE_NAME = 'projectlog-shell-v4-3-0';
+const VERSION = '4.3.0';
 const versioned = (path) => `${path}?v=${VERSION}`;
 const APP_SHELL = [
   './',
